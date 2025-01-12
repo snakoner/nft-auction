@@ -1,12 +1,23 @@
-import { loadFixture, ethers, expect } from "./setup";
-import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/src/signers";
-import { AuctionERC721, NFT } from "../typechain-types";
+import {loadFixture} from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/src/signers";
+import {ethers} from "hardhat";
+import {expect} from "chai";
+import {AuctionERC721, NFT} from "../typechain-types";
+import "@nomicfoundation/hardhat-chai-matchers";
+import {ContractTransactionResponse, ContractTransactionReceipt} from "ethers";
 
 const tokenId = 0;
 
 interface Bidder {
     signer: HardhatEthersSigner;
     bid: bigint;
+};
+
+let lotInfo = {
+    item: ethers.ZeroAddress,
+    tokenId: tokenId,
+    startPrice: ethers.parseEther("0.1"),
+    duration: 60 * 60 * 24 * 2,      // 2 days
 };
 
 describe("AuctionERC721 test", function() {
@@ -56,13 +67,6 @@ describe("AuctionERC721 test", function() {
     }
 
     const addLot = async(contract: AuctionERC721, nft: NFT) => {
-        const lotInfo = {
-            item: await nft.getAddress(),
-            tokenId: tokenId,
-            startPrice: ethers.parseEther("0.1"),
-            duration: 60 * 60 * 24 * 2,      // 2 days
-        };
-
         await contract.addLot(
             lotInfo.item,
             lotInfo.tokenId,
@@ -71,6 +75,10 @@ describe("AuctionERC721 test", function() {
         );
 
         return lotInfo;
+    }
+
+    const getTransactionFee = (tx: ContractTransactionResponse, receipt: ContractTransactionReceipt) => {
+        return receipt.gasUsed * (tx.gasPrice || receipt.effectiveGasPrice);
     }
 
     async function deploy() {
@@ -82,6 +90,8 @@ describe("AuctionERC721 test", function() {
         const nft = await nftFactory.deploy();
         await nft.waitForDeployment();
         
+        lotInfo.item = await nft.getAddress();
+
         // auction
         const auctionFactory = await ethers.getContractFactory("AuctionERC721");
         const auction = await auctionFactory.deploy();
@@ -114,7 +124,7 @@ describe("AuctionERC721 test", function() {
     it ("Should be possible to add lot", async function() {
         const {auction, nft, owner} = await loadFixture(deploy);        
         
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
         // check ownership of nft{tokenId}
         expect(await nft.ownerOf(lotInfo.tokenId)).to.be.eq(await auction.getAddress());
 
@@ -145,7 +155,7 @@ describe("AuctionERC721 test", function() {
     it ("Should be possible to make bid", async function() {
         const {auction, nft, bidders} = await loadFixture(deploy);        
 
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
         
         // make bid and make sure that prev bid returns to bidder
         for (let i = 0; i < bidders.length; i++) {
@@ -178,7 +188,7 @@ describe("AuctionERC721 test", function() {
         const {auction, nft, owner, bidders} = await loadFixture(deploy);        
         const bidder = bidders[0];
 
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
         
         await auction.connect(bidder.signer).bidLot(0, {value: bidder.bid});
 
@@ -192,6 +202,7 @@ describe("AuctionERC721 test", function() {
         const tx = await auction.endLot(0);
         const receipt = await tx.wait();
 
+
         /* checks */
         // nft owner is last bidder
         expect(await nft.ownerOf(0)).to.be.eq(bidder.signer.address);
@@ -200,9 +211,8 @@ describe("AuctionERC721 test", function() {
 
         // previous owner of nft receinve last bid in ETH
         const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
-		const transactionFee = receipt.gasUsed * (tx.gasPrice || receipt.effectiveGasPrice);
 
-        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(bidder.bid - transactionFee);
+        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(bidder.bid - getTransactionFee(tx, receipt));
 
         // storage after-check
         const auctionLot = await auction.getLotInfo(0);
@@ -225,7 +235,7 @@ describe("AuctionERC721 test", function() {
     it ("Should be possible to end auction if there is no bidders", async function() {
         const {auction, nft, owner} = await loadFixture(deploy);        
 
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
 
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
@@ -245,9 +255,8 @@ describe("AuctionERC721 test", function() {
 
         // previous owner of nft receinve last bid in ETH
         const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
-		const transactionFee = receipt.gasUsed * (tx.gasPrice || receipt.effectiveGasPrice);
 
-        expect(ownerBalanceBefore - ownerBalanceAfter).to.be.eq(transactionFee);
+        expect(ownerBalanceBefore - ownerBalanceAfter).to.be.eq(getTransactionFee(tx, receipt));
 
         // events check
         const event = await getAuctionEndedEvent(auction);
@@ -259,7 +268,7 @@ describe("AuctionERC721 test", function() {
     it ("Should not be possible to end auction if AuctionState is active", async function() {
         const {auction, nft} = await loadFixture(deploy);        
 
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
         
         await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "AuctionERC721UnexpectedState");
     });
@@ -267,7 +276,7 @@ describe("AuctionERC721 test", function() {
     it ("Should not be possible to end auction if AuctionState is Ended", async function() {
         const {auction, nft} = await loadFixture(deploy);        
 
-        const lotInfo = await addLot(auction, nft);
+        await addLot(auction, nft);
         
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
