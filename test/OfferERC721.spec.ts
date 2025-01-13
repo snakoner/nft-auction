@@ -3,110 +3,105 @@ import {ethers} from "hardhat";
 import {expect} from "chai";
 import {OfferERC721, NFT} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
-import {ContractTransactionResponse, ContractTransactionReceipt} from "ethers";
+import { getTransactionFee } from "./common";
 
 const tokenId = 0;
 const fee: bigint = BigInt(20);  // 0.2%
 const offerValue = ethers.parseEther("0.1");
 
-describe("OfferERC721 test", function() {
-    let fixed: OfferERC721;
-    let nft: NFT;
-    let owner: HardhatEthersSigner;
-    let offerer: HardhatEthersSigner;
-    let lotInfo = {
-        item: ethers.ZeroAddress,
-        tokenId: tokenId,
-        price: ethers.parseEther("0.1"),
-        duration: 60 * 60 * 24 * 2,      // 2 days
+let fixed: OfferERC721;
+let nft: NFT;
+let owner: HardhatEthersSigner;
+let offerer: HardhatEthersSigner;
+let lotInfo = {
+    item: ethers.ZeroAddress,
+    tokenId: tokenId,
+    price: ethers.parseEther("0.1"),
+};
+
+/* helpers */
+const getLotAddedEvent = async(contract: OfferERC721) => {
+    let events = await contract.queryFilter(contract.filters.LotAdded(), 0, "latest");
+    if (events.length == 0)
+        return null;
+
+    return {
+        id: events[0].args?.id,
+        item: events[0].args?.item,
+        tokenId: events[0].args?.tokenId,
+        creator: events[0].args?.creator
     };
+}
 
-    /* helpers */
-    const getLotAddedEvent = async(contract: OfferERC721) => {
-        let events = await contract.queryFilter(contract.filters.LotAdded(), 0, "latest");
-        if (events.length == 0)
-            return null;
+const getLotApprovedEvent = async(contract: OfferERC721) => {
+    let events = await contract.queryFilter(contract.filters.LotApproved(), 0, "latest");
+    if (events.length == 0)
+        return null;
 
-        return {
-            id: events[0].args?.id,
-            item: events[0].args?.item,
-            tokenId: events[0].args?.tokenId,
-            creator: events[0].args?.creator
-        };
-    }
+    return {
+        id: events[0].args?.id,
+        buyer: events[0].args?.buyer,
+        price: events[0].args?.price,
+    };
+}
 
-    const getLotApprovedEvent = async(contract: OfferERC721) => {
-        let events = await contract.queryFilter(contract.filters.LotApproved(), 0, "latest");
-        if (events.length == 0)
-            return null;
+const getLotClosedEvent = async(contract: OfferERC721) => {
+    let events = await contract.queryFilter(contract.filters.LotClosed(), 0, "latest");
+    if (events.length == 0)
+        return null;
 
-        return {
-            id: events[0].args?.id,
-            buyer: events[0].args?.buyer,
-            price: events[0].args?.price,
-        };
-    }
+    return {
+        id: events[0].args?.id,
+    };
+}
 
-    const getLotClosedEvent = async(contract: OfferERC721) => {
-        let events = await contract.queryFilter(contract.filters.LotClosed(), 0, "latest");
-        if (events.length == 0)
-            return null;
+const getLotOfferedEvent = async(contract: OfferERC721) => {
+    let events = await contract.queryFilter(contract.filters.LotOffered(), 0, "latest");
+    if (events.length == 0)
+        return null;
 
-        return {
-            id: events[0].args?.id,
-        };
-    }
+    return {
+        id: events[0].args?.id,
+        offerer: events[0].args?.offerer,
+        price: events[0].args?.price,
+    };
+}
 
-    const getLotOfferedEvent = async(contract: OfferERC721) => {
-        let events = await contract.queryFilter(contract.filters.LotOffered(), 0, "latest");
-        if (events.length == 0)
-            return null;
+const addLot = async(contract: OfferERC721, nft: NFT) => {
+    await contract.addLot(
+        lotInfo.item,
+        lotInfo.tokenId,
+    );
 
-        return {
-            id: events[0].args?.id,
-            offerer: events[0].args?.offerer,
-            price: events[0].args?.price,
-        };
-    }
+    return lotInfo;
+}
 
-    const addLot = async(contract: OfferERC721, nft: NFT) => {
-        await contract.addLot(
-            lotInfo.item,
-            lotInfo.tokenId,
-        );
-
-        return lotInfo;
-    }
-
-    const getTransactionFee = (tx: ContractTransactionResponse, receipt: ContractTransactionReceipt) => {
-        return receipt.gasUsed * (tx.gasPrice || receipt.effectiveGasPrice);
-    }
+const init = async() => {
+    owner = (await ethers.getSigners())[0];
+    offerer = (await ethers.getSigners())[1];
     
-    async function init() {
-        owner = (await ethers.getSigners())[0];
-        offerer = (await ethers.getSigners())[1];
-        
-        // nft
-        const nftFactory = await ethers.getContractFactory("NFT");
-        nft = await nftFactory.deploy();
-        await nft.waitForDeployment();
-        
-        lotInfo.item = await nft.getAddress();
+    // nft
+    const nftFactory = await ethers.getContractFactory("NFT");
+    nft = await nftFactory.deploy();
+    await nft.waitForDeployment();
+    
+    lotInfo.item = await nft.getAddress();
 
-        // auction
-        const fixedFactory = await ethers.getContractFactory("OfferERC721");
-        fixed = await fixedFactory.deploy(fee);
-        await fixed.waitForDeployment();
+    // auction
+    const fixedFactory = await ethers.getContractFactory("OfferERC721");
+    fixed = await fixedFactory.deploy(fee);
+    await fixed.waitForDeployment();
 
-        // mint and approve NFT
-        await nft.mint();
-        await nft.approve(await fixed.getAddress(), 0);
+    // mint and approve NFT
+    await nft.mint();
+    await nft.approve(await fixed.getAddress(), 0);
 
-        expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
-        await nft.approve(await fixed.getAddress(), tokenId);
-        expect(await nft.getApproved(tokenId)).to.be.eq(await fixed.getAddress());
-    }
+    expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
+    await nft.approve(await fixed.getAddress(), tokenId);
+    expect(await nft.getApproved(tokenId)).to.be.eq(await fixed.getAddress());
+}
 
+describe("OfferERC721 test", function() {
     beforeEach(async function () {
         await init();
     });
