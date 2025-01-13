@@ -16,10 +16,9 @@ contract Auction is
     }
 
     struct Lot {
-        IERC721 item;       // slot 0
+        IERC721 token;       // slot 0
         uint64 timeout;     // slot 0
         bool withdrawed;    // slot 0
-        uint256 bidsNumber;
         uint256 startPrice;
         uint256 lastPrice;
         uint256 tokenId;
@@ -27,10 +26,14 @@ contract Auction is
         address creator;
     }
 
-    uint64 constant public MIN_DURATION = 1 days;
     mapping (uint256 id => Lot) private _lots;
 
     constructor(uint24 _fee) MarketplaceCommon(_fee) {}
+
+    modifier notCreator(uint256 id) {
+        require(_lots[id].creator != _msgSender(), CreatorBidForbidden());
+        _;
+    }
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -46,10 +49,9 @@ contract Auction is
     }
 
     function getLotInfo(uint256 id) external view lotExist(id) returns (
-        address item,
+        address token,
         uint64 timeout,
         LotState state,
-        uint256 bidsNumber,
         uint256 startPrice,
         uint256 lastPrice,
         uint256 tokenId,
@@ -58,10 +60,9 @@ contract Auction is
     ) {
         Lot memory lot = _lots[id];
         return (
-            address(lot.item),
+            address(lot.token),
             lot.timeout,
             getLotState(id),
-            lot.bidsNumber,
             lot.startPrice,
             lot.lastPrice,
             lot.tokenId,
@@ -70,46 +71,50 @@ contract Auction is
         );
     }
 
+    function _minDuration() internal virtual pure returns (uint64) {
+        return uint64(1 days);
+    }
+
     /*/////////////////////////////////////////////
     ///////// Write functions            /////////
     ///////////////////////////////////////////*/
     function _addLot(
-        IERC721 item,
+        IERC721 token,
         uint256 tokenId,
         uint256 startPrice,
         uint64 duration,
         address creator
     ) private {
-        if (duration < MIN_DURATION || startPrice == 0) {
+        if (duration < _minDuration() || startPrice == 0) {
             revert MarketplaceInvalidInputData();
         }
 
-        item.transferFrom(creator, address(this), tokenId);
+        token.transferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
-                item: item,
+                token: token,
                 timeout: uint64(block.timestamp) + duration,                
                 withdrawed: false,
                 startPrice: startPrice,
-                bidsNumber: 0,
+                // bidsNumber: 0,
                 lastPrice: startPrice,
                 tokenId: tokenId,
                 winner: creator,
                 creator: creator
         });
 
-        emit LotAdded(totalLots, address(item), tokenId, startPrice, _lots[totalLots].timeout, creator);
+        emit LotAdded(totalLots, address(token), tokenId, startPrice, _lots[totalLots].timeout, creator);
 
         totalLots++;
     }
 
     function addLot(
-        address _item,
+        address _token,
         uint256 tokenId,
         uint256 startPrice,
         uint64 duration
     ) external {
-        if (!_supportsERC721Interface(_item)) {
+        if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
 
@@ -118,12 +123,12 @@ contract Auction is
             revert MarketplaceNoIERC721ReceiverSupport();
         }
 
-        IERC721 item = IERC721(_item);
-        _addLot(item, tokenId, startPrice, duration, creator);
+        IERC721 token = IERC721(_token);
+        _addLot(token, tokenId, startPrice, duration, creator);
     }
 
     function addLotBatch(
-        address _item,
+        address _token,
         uint256[] calldata tokenIds,
         uint256[] calldata startPrices,
         uint64[] calldata durations
@@ -132,7 +137,7 @@ contract Auction is
             revert ArrayLengthMissmatch();
         }
 
-        if (!_supportsERC721Interface(_item)) {
+        if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
 
@@ -141,15 +146,16 @@ contract Auction is
             revert MarketplaceNoIERC721ReceiverSupport();
         }
 
-        IERC721 item = IERC721(_item);
+        IERC721 token = IERC721(_token);
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            _addLot(item, tokenIds[i], startPrices[i], durations[i], creator);
+            _addLot(token, tokenIds[i], startPrices[i], durations[i], creator);
         }
     }
 
     function bidLot(uint256 id) external payable 
         nonReentrant 
-        lotExist(id)  
+        lotExist(id)
+        notCreator(id)
     {
         if (getLotState(id) != LotState.Active) {
             revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)));
@@ -163,15 +169,13 @@ contract Auction is
         address oldBidder = _lots[id].winner;
         uint256 oldBid = _lots[id].lastPrice;
 
-        _lots[id].winner = bidder;
-        _lots[id].lastPrice = newBid;
-
-        if (_lots[id].bidsNumber != 0) {
+        if (_lots[id].lastPrice != _lots[id].startPrice) {
             (bool success, ) = oldBidder.call{value: oldBid}("");
             require(success, MarketplaceTransactionFailed());
         }
 
-        _lots[id].bidsNumber++;
+        _lots[id].lastPrice = newBid;
+        _lots[id].winner = bidder;
 
         emit LotBidded(id, bidder, newBid);
     }
@@ -186,11 +190,11 @@ contract Auction is
         Lot storage lot = _lots[id];
         lot.withdrawed = true;
 
-        lot.item.transferFrom(address(this), lot.winner, lot.tokenId);
+        lot.token.transferFrom(address(this), lot.winner, lot.tokenId);
 
         // if have winner send ETH to creator
-        if (lot.bidsNumber != 0) {
-            price = _calculatePriceWithFeeAndUpdate(lot.lastPrice);
+        if (_lots[id].startPrice != _lots[id].lastPrice) {
+            price = _calculatePriceWithFeeAndUpdate(address(lot.token), lot.tokenId, lot.lastPrice);
 
             (bool success, ) = lot.creator.call{value: price}("");
             require(success, MarketplaceTransactionFailed());

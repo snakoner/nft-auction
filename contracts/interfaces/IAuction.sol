@@ -6,11 +6,13 @@ interface IAuction {
 
     error InsufficientBidValue();
 
+    error CreatorBidForbidden();
+
     error ArrayLengthMissmatch();
 
     event LotAdded(
         uint256 indexed id,
-        address indexed item,
+        address indexed token,
         uint256 tokenId,
         uint256 startPrice,
         uint64 timeout,

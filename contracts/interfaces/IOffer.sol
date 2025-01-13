@@ -8,7 +8,7 @@ interface IOffer {
 
     event LotAdded(
         uint256 indexed id,
-        address indexed item,
+        address indexed token,
         uint256 tokenId,
         address indexed creator
     );

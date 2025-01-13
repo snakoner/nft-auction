@@ -16,7 +16,7 @@ contract FixedPrice is
     }
 
     struct Lot {
-        IERC721 item;     
+        IERC721 token;     
         bool sold;
         bool closed;
         uint256 price;
@@ -48,7 +48,7 @@ contract FixedPrice is
     }
 
     function getLotInfo(uint256 id) external view lotExist(id) returns (
-        address item,
+        address token,
         LotState state,
         uint256 price,
         uint256 tokenId,
@@ -58,7 +58,7 @@ contract FixedPrice is
     {
         Lot memory lot = _lots[id];
         return (
-            address(lot.item),
+            address(lot.token),
             getLotState(id),
             lot.price,
             lot.tokenId,
@@ -71,17 +71,17 @@ contract FixedPrice is
     ///////// Write functions             ////////
     ///////////////////////////////////////////*/
     function _addLot(
-        IERC721 item,
+        IERC721 token,
         uint256 tokenId,
         uint256 price,
         address creator
     ) private {
         require(price > 0, MarketplaceInvalidInputData());
 
-        item.transferFrom(creator, address(this), tokenId);
+        token.transferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
-                item: item,
+                token: token,
                 sold: false,
                 closed: false,
                 price: price,
@@ -90,13 +90,13 @@ contract FixedPrice is
                 buyer: creator
         });
 
-        emit LotAdded(totalLots, address(item), tokenId, price, creator);
+        emit LotAdded(totalLots, address(token), tokenId, price, creator);
 
         totalLots++;
     }
 
     function addLot(
-        address _item,
+        address _token,
         uint256 tokenId,
         uint256 price
     ) external {
@@ -104,7 +104,7 @@ contract FixedPrice is
             revert MarketplaceInvalidInputData();
         }
 
-        if (!_supportsERC721Interface(_item)) {
+        if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
 
@@ -113,12 +113,12 @@ contract FixedPrice is
             revert MarketplaceNoIERC721ReceiverSupport();
         }
 
-        IERC721 item = IERC721(_item);
-        _addLot(item, tokenId, price, creator);
+        IERC721 token = IERC721(_token);
+        _addLot(token, tokenId, price, creator);
     }
 
     function addLotBatch(
-        address _item,
+        address _token,
         uint256[] calldata tokenIds,
         uint256[] calldata prices
     ) external {
@@ -126,7 +126,7 @@ contract FixedPrice is
             revert ArrayLengthMissmatch();
         }
 
-        if (!_supportsERC721Interface(_item)) {
+        if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
 
@@ -135,9 +135,9 @@ contract FixedPrice is
             revert MarketplaceNoIERC721ReceiverSupport();
         }
 
-        IERC721 item = IERC721(_item);
+        IERC721 token = IERC721(_token);
         for (uint i = 0; i < tokenIds.length; i++) {
-            _addLot(item, tokenIds[i], prices[i], creator);
+            _addLot(token, tokenIds[i], prices[i], creator);
         }
     }
 
@@ -159,8 +159,8 @@ contract FixedPrice is
         lot.sold = true;
         lot.buyer = buyer;
 
-        lot.item.transferFrom(address(this), buyer, lot.tokenId);
-        uint256 price = _calculatePriceWithFeeAndUpdate(value);
+        lot.token.transferFrom(address(this), buyer, lot.tokenId);
+        uint256 price = _calculatePriceWithFeeAndUpdate(address(lot.token), lot.tokenId, value);
 
         (bool success, ) = lot.creator.call{value: price}("");
         require(success, MarketplaceTransactionFailed());
@@ -178,7 +178,7 @@ contract FixedPrice is
         Lot storage lot = _lots[id];
         lot.closed = true;
 
-        lot.item.transferFrom(address(this), lot.creator, lot.tokenId);
+        lot.token.transferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);
     }

@@ -10,7 +10,7 @@ interface IFixedPrice {
 
     event LotAdded(
         uint256 indexed id,
-        address indexed item,
+        address indexed token,
         uint256 tokenId,
         uint256 price,
         address indexed creator

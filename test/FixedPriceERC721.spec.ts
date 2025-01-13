@@ -1,20 +1,22 @@
 import {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/src/signers";
 import {ethers} from "hardhat";
 import {expect} from "chai";
-import {FixedPrice, NFT} from "../typechain-types";
+import {FixedPrice, NFT,ERC721Token} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
 const batchSize = 20;
 const tokenId = 0;
 const fee = BigInt(20);  // 0.2%
+const feeNumerator = BigInt(200); // 2%
 
 let market: FixedPrice;
 let nft: NFT;
+let nftERC2981: ERC721Token;
 let owner: HardhatEthersSigner;
 let buyer: HardhatEthersSigner;
 let lotInfo = {
-    item: ethers.ZeroAddress,
+    token: ethers.ZeroAddress,
     tokenId: tokenId,
     price: ethers.parseEther("0.1"),
 };
@@ -29,7 +31,7 @@ const getLotAddedEvents = async(market: FixedPrice) => {
         result.push(
             {
                 id: events[i].args?.id,
-                item: events[i].args?.item,
+                token: events[i].args?.token,
                 tokenId: events[i].args?.tokenId,
                 price: events[i].args?.price,
                 creator: events[i].args?.creator
@@ -64,7 +66,7 @@ const getLotClosedEvent = async(market: FixedPrice) => {
 
 const addLot = async(market: FixedPrice, nft: NFT) => {
     await market.addLot(
-        lotInfo.item,
+        lotInfo.token,
         lotInfo.tokenId,
         lotInfo.price,
     );
@@ -81,7 +83,7 @@ const init = async() => {
     nft = await nftFactory.deploy();
     await nft.waitForDeployment();
     
-    lotInfo.item = await nft.getAddress();
+    lotInfo.token = await nft.getAddress();
 
     // auction
     const marketFactory = await ethers.getContractFactory("FixedPrice");
@@ -93,6 +95,19 @@ const init = async() => {
         await nft.mint();
         await nft.approve(await market.getAddress(), i);    
     }
+
+    // mint ERC2981 nft
+    const nftERC2981Factory = await ethers.getContractFactory("ERC721Token");
+    nftERC2981 = await nftERC2981Factory.deploy(
+        await owner.getAddress(),
+        "NFT ERC2981",
+        "NFT",
+        "ipfs://QmbWqxBEKC3P8tqsKc98xmjnA4GZB1zUJx8ofYfN1E4YBz",
+    );
+
+    await nftERC2981.waitForDeployment();
+    await nftERC2981.mint(await owner.getAddress(), feeNumerator);
+    await nftERC2981.approve(await market.getAddress(), 0);
 
     expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
     await nft.approve(await market.getAddress(), tokenId);
@@ -117,7 +132,7 @@ describe("FixedPrice test", function() {
         if (event) {
             expect(event.creator).to.be.eq(await owner.getAddress());
             expect(event.id).to.be.eq(Number(await market.totalLots()) - 1);
-            expect(event.item).to.be.eq(await nft.getAddress());
+            expect(event.token).to.be.eq(await nft.getAddress());
             expect(event.price).to.be.eq(lotInfo.price);
             expect(event.tokenId).to.be.eq(lotInfo.tokenId);    
         } else {
@@ -127,7 +142,7 @@ describe("FixedPrice test", function() {
         // check storage
         const auctionLot = await market.getLotInfo(event.id);
         expect(auctionLot.creator).to.be.eq(await owner.getAddress());
-        expect(auctionLot.item).to.be.eq(await nft.getAddress());
+        expect(auctionLot.token).to.be.eq(await nft.getAddress());
         expect(auctionLot.price).to.be.eq(lotInfo.price);
         expect(auctionLot.state).to.be.eq(0);
         expect(auctionLot.tokenId).to.be.eq(lotInfo.tokenId);    
@@ -222,7 +237,7 @@ describe("FixedPrice test", function() {
 
         for (let i = 0; i < batchSize; i++) {
             expect(events[i].id).to.be.eq(i);
-            expect(events[i].item).to.be.eq(await nft.getAddress());
+            expect(events[i].token).to.be.eq(await nft.getAddress());
             expect(events[i].tokenId).to.be.eq(tokenIds[i]);
             expect(events[i].price).to.be.eq(prices[i]);
             expect(events[i].creator).to.be.eq(await owner.getAddress());
@@ -230,4 +245,18 @@ describe("FixedPrice test", function() {
 
         expect(await market.totalLots()).to.be.eq(batchSize);
     });
+
+    it ("Should be withhold the commission for ERC2981", async function() {
+        await market.addLot(await nftERC2981.getAddress(), 0, lotInfo.price);
+        
+        await market.connect(buyer).buyLot(0, {value: lotInfo.price});
+        const event = await getLotSoldEvent(market);
+
+        const realPrice = event?.price;
+        const royaltyInfo = await market.royaltyInfo(await nftERC2981.getAddress(), 0, lotInfo.price);
+        const calculatedPrice = lotInfo.price - royaltyInfo.amount - (lotInfo.price - royaltyInfo.amount) * fee / BigInt(10000);
+
+        expect(realPrice).to.be.eq(calculatedPrice);
+    });
+
 })

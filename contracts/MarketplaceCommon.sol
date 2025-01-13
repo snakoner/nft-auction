@@ -5,6 +5,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC2981} from "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IMarketplaceCommon} from "./interfaces/IMarketplaceCommon.sol";
 
@@ -84,21 +85,39 @@ abstract contract MarketplaceCommon is
     }
 
     function royaltyInfo(
+        address token,
         uint256 tokenId,
         uint256 salePrice
     ) public view returns (address receiver, uint256 amount) {
+        (receiver, amount) = 
+            IERC721(token).supportsInterface(type(IERC2981).interfaceId) ? 
+            IERC2981(token).royaltyInfo(tokenId, salePrice) :
+            (address(0), 0);
 
+        return (receiver, amount);
     }
 
     function _encodeState(uint8 state) internal pure returns (bytes32) {
         return bytes32(1 << uint8(state));
     }
 
-    function _calculatePriceWithFeeAndUpdate(uint256 value) internal returns (uint256) {
-        uint256 feeValue = value * fee / 10000;
+    // @notice don't use noReentrant because this func is called in noReentrant function
+    function _calculatePriceWithFeeAndUpdate(
+        address token,
+        uint256 tokenId,
+        uint256 salePrice
+    ) internal returns (uint256) {
+        (address receiver, uint256 royaltyFee) = royaltyInfo(token, tokenId, salePrice);
+        if (royaltyFee != 0) {
+            salePrice -= royaltyFee;
+            (bool success, ) = receiver.call{value: royaltyFee}("");
+            require(success, MarketplaceTransactionFailed());
+        }
+
+        uint256 feeValue = salePrice * fee / 10000;
         _feeValue += feeValue;
 
-        return value - feeValue;
+        return salePrice - feeValue;
     }
 
     function updateFee(uint24 newFee) public virtual onlyOwner {
