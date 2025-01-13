@@ -6,43 +6,42 @@ import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import { IERC721Receiver } from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { IAuctionERC721 } from "./interfaces/IAuctionERC721.sol";
+import { IFixedPriceERC721 } from "./interfaces/IFixedPriceERC721.sol";
 
-contract AuctionERC721 is 
+contract FixedPriceERC721 is 
     Ownable,
     ReentrancyGuard, 
     IERC721Receiver,
-    IAuctionERC721 
+    IFixedPriceERC721 
 {
     enum LotState {
-        Active,     // timeout < block.timestamp
-        Pending,    // timeout >= block.timestamp
-        Ended       // withdrawed == true
+        Active,     // sold == false && closed == false
+        Sold,       // sold == true
+        Closed      // closed == true
     }
 
     struct Lot {
-        IERC721 item;       // slot 0
-        uint64 timeout;     // slot 0
-        bool withdrawed;    // slot 0
-        uint256 bidsNumber;
-        uint256 startPrice;
-        uint256 lastPrice;
+        IERC721 item;     
+        bool sold;
+        bool closed;
+        uint256 price;
         uint256 tokenId;
-        address winner;
         address creator;
+        address buyer;
     }
 
     uint256 public totalLots;
     uint256 private _feeValue;
     mapping (uint256 id => Lot) private _lots;
-    uint64 constant public MIN_DURATION = 1 days;
     uint24 public fee;	// 10^4 -> (0.01% .. 100%)
 
-    /*/////////////////////////////////////////////
-    ///////// Modifiers                   /////////
-    ///////////////////////////////////////////*/
     modifier lotExist(uint256 id) {
         require(totalLots > id, ERC721LotNotExist());
+        _;
+    }
+
+    modifier onlyCreator(uint256 id) {
+        require(_lots[id].creator == msg.sender, FixedPriceERC721OnlyCreatorAllowed());
         _;
     }
 
@@ -56,12 +55,12 @@ contract AuctionERC721 is
     ///////// Read functions             /////////
     ///////////////////////////////////////////*/
     function getLotState(uint256 id) public view returns (LotState) {
-        if (_lots[id].timeout > uint64(block.timestamp)) {
-            return LotState.Active;
-        } else if (_lots[id].withdrawed) {
-            return LotState.Ended;
+        if (_lots[id].sold) {
+            return LotState.Sold;
+        } else if (_lots[id].closed) {
+            return LotState.Closed;
         } else {
-            return LotState.Pending;
+            return LotState.Active;
         }
     }
 
@@ -89,39 +88,33 @@ contract AuctionERC721 is
 
     function getLotInfo(uint256 id) external view lotExist(id) returns (
         address item,
-        uint64 timeout,
         LotState state,
-        uint256 bidsNumber,
-        uint256 startPrice,
-        uint256 lastPrice,
+        uint256 price,
         uint256 tokenId,
-        address winner,
-        address creator
-    ) {
+        address creator,
+        address buyer
+    ) 
+    {
         Lot memory lot = _lots[id];
         return (
             address(lot.item),
-            lot.timeout,
             getLotState(id),
-            lot.bidsNumber,
-            lot.startPrice,
-            lot.lastPrice,
+            lot.price,
             lot.tokenId,
-            lot.winner,
-            lot.creator
+            lot.creator,
+            lot.buyer
         );
     }
 
     /*/////////////////////////////////////////////
-    ///////// Write functions            /////////
+    ///////// Write functions             ////////
     ///////////////////////////////////////////*/
     function addLot(
         address _item,
         uint256 tokenId,
-        uint256 startPrice,
-        uint64 duration
+        uint256 price
     ) external {
-        if (duration < MIN_DURATION || startPrice == 0) {
+        if (price == 0) {
             revert ERC721InvalidInputData();
         }
 
@@ -139,73 +132,61 @@ contract AuctionERC721 is
 
         _lots[totalLots] = Lot({
                 item: item,
-                timeout: uint64(block.timestamp) + duration,                
-                withdrawed: false,
-                startPrice: startPrice,
-                bidsNumber: 0,
-                lastPrice: startPrice,
+                sold: false,
+                closed: false,
+                price: price,
                 tokenId: tokenId,
-                winner: creator,
-                creator: creator
+                creator: creator,
+                buyer: creator
         });
 
-        emit LotAdded(totalLots, _item, tokenId, startPrice, _lots[totalLots].timeout, creator);
+        emit LotAdded(totalLots, _item, tokenId, price, creator);
 
         totalLots++;
     }
 
-    function bidLot(uint256 id) external payable 
-        nonReentrant 
-        lotExist(id)  
-    {
+    function buyLot(
+        uint256 id
+    ) external payable nonReentrant {
         if (getLotState(id) != LotState.Active) {
             revert ERC721UnexpectedState(_encodeState(LotState.Active));
         }
 
-        uint256 newBid = msg.value;
-        if (newBid < _lots[id].lastPrice) 
-            revert AuctionERC721InsufficientBidValue();
-
-        address bidder = msg.sender;
-        address oldBidder = _lots[id].winner;
-        uint256 oldBid = _lots[id].lastPrice;
-
-        _lots[id].winner = bidder;
-        _lots[id].lastPrice = newBid;
-
-        if (_lots[id].bidsNumber != 0) {
-            (bool success, ) = oldBidder.call{value: oldBid}("");
-            require(success, ERC721TransactionFailed());
+        uint256 value = msg.value;
+        if (value != _lots[id].price) {
+            revert FixedPriceERC721InsufficientValue();
         }
 
-        _lots[id].bidsNumber++;
+        address buyer = msg.sender;
 
-        emit LotBidded(id, bidder, newBid);
+        Lot storage lot = _lots[id];
+        lot.sold = true;
+        lot.buyer = buyer;
+
+        lot.item.safeTransferFrom(address(this), buyer, lot.tokenId);
+        uint256 feeValue = value * fee / 10000;
+        uint256 price = value - feeValue;
+        _feeValue += feeValue;
+
+        (bool success, ) = lot.creator.call{value: price}("");
+        require(success, ERC721TransactionFailed());
+
+        emit LotSold(id, buyer, price);
     }
 
-    // this function can be call by anyone
-    function endLot(uint256 id) external nonReentrant lotExist(id) {
-        if (getLotState(id) != LotState.Pending) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Pending));
+    function closeLot(
+        uint256 id
+    ) external lotExist(id) onlyCreator(id) {
+        if (getLotState(id) != LotState.Active) {
+            revert ERC721UnexpectedState(_encodeState(LotState.Active));
         }
 
-        uint256 price = 0;
         Lot storage lot = _lots[id];
-        lot.withdrawed = true;
+        lot.closed = true;
 
-        lot.item.safeTransferFrom(address(this), lot.winner, lot.tokenId);
+        lot.item.safeTransferFrom(address(this), lot.creator, lot.tokenId);
 
-        // if have winner send ETH to creator
-        if (lot.bidsNumber != 0) {
-            uint256 feeValue = lot.lastPrice * fee / 10000;
-            price = lot.lastPrice - feeValue;
-            _feeValue += feeValue;
-
-            (bool success, ) = lot.creator.call{value: price}("");
-            require(success, ERC721TransactionFailed());
-        }
-
-        emit LotEnded(id, lot.winner, price);
+        emit LotClosed(id);
     }
 
     function updateFee(uint24 newFee) external onlyOwner {

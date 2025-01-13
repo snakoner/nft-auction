@@ -299,7 +299,7 @@ describe("AuctionERC721 test", function() {
 
         await addLot(auction, nft);
         
-        await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "AuctionERC721UnexpectedState");
+        await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "ERC721UnexpectedState");
     });
 
     it ("Should not be possible to end auction if AuctionState is Ended", async function() {
@@ -312,7 +312,7 @@ describe("AuctionERC721 test", function() {
         await ethers.provider.send('evm_mine');
         await auction.endLot(0);
 
-        await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "AuctionERC721UnexpectedState");
+        await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "ERC721UnexpectedState");
     });
 
     it ("Should be possible to withdraw fee", async function() {

@@ -1,28 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-contract IAuctionERC721 {
-    error AuctionERC721OwnershipError();
+import { IMarketplaceERC721Common } from "./IMarketplaceERC721Common.sol";
 
-    error AuctionERC721AllowanceError();
-
-    error AuctionERC721NoERC721InterfaceSupport();
-
-    error AuctionERC721InvalidInputData();
-
-    error AuctionERC721LotNotExist();
-
+interface IAuctionERC721 is IMarketplaceERC721Common {
     error AuctionERC721AuctionAlreadyEnded();
 
     error AuctionERC721InsufficientBidValue();
-
-    error AuctionERC721TransactionFailed();
-
-    error AuctionERC721UnexpectedState(bytes32 expectedState);
-
-    error AuctionERC721FeeUpdateFailed();
-
-    error AuctionERC721ZeroFeeValue();
 
     event LotAdded(
         uint256 indexed id,
@@ -43,22 +27,5 @@ contract IAuctionERC721 {
         uint256 indexed id,
         address indexed winner,
         uint256 finalPrice
-    );
-
-    event TokenReceived(
-        address operator,
-        address from,
-        uint256 tokenId,
-        bytes data
-    );
-
-    event FeeUpdated(
-        uint24 oldFee,
-        uint24 newFee
-    );
-
-    event FeeWithdrawed(
-        address indexed to,
-        uint256 amount
     );
 }
