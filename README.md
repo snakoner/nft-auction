@@ -9,3 +9,8 @@ An advanced, feature-rich NFT Marketplace built on Ethereum, designed for tradin
 - Secure Transactions: Implements ReentrancyGuard to prevent reentrancy attacks.
 - Event Logging: Emits key events for blockchain transparency.
 - Custom Errors: Saves gas by using structured errors.
+
+## Tech Stack 🛠️
+- Smart Contracts: Solidity with OpenZeppelin libraries.
+- Blockchain: Ethereum or compatible EVM chains (e.g., Polygon, Binance Smart Chain).
+-	Testing: Hardhat, Mocha, Chai.
