@@ -5,6 +5,7 @@ import {FixedPrice, NFT} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
+const batchSize = 20;
 const tokenId = 0;
 const fee: bigint = BigInt(20);  // 0.2%
 let market: FixedPrice;
@@ -18,18 +19,24 @@ let lotInfo = {
 };
 
 /* helpers */
-const getLotAddedEvent = async(market: FixedPrice) => {
+const getLotAddedEvents = async(market: FixedPrice) => {
     let events = await market.queryFilter(market.filters.LotAdded(), 0, "latest");
     if (events.length == 0)
         return null;
+    let result: any[] = [];
+    for (let i = 0; i < events.length; i++) {
+        result.push(
+            {
+                id: events[i].args?.id,
+                item: events[i].args?.item,
+                tokenId: events[i].args?.tokenId,
+                price: events[i].args?.price,
+                creator: events[i].args?.creator
+            }
+        );
+    }
 
-    return {
-        id: events[0].args?.id,
-        item: events[0].args?.item,
-        tokenId: events[0].args?.tokenId,
-        price: events[0].args?.price,
-        creator: events[0].args?.creator
-    };
+    return result;
 }
 
 const getLotSoldEvent = async(market: FixedPrice) => {
@@ -81,8 +88,10 @@ const init = async() => {
     await market.waitForDeployment();
 
     // mint and approve NFT
-    await nft.mint();
-    await nft.approve(await market.getAddress(), 0);
+    for (let i = 0; i < batchSize; i++) {
+        await nft.mint();
+        await nft.approve(await market.getAddress(), i);    
+    }
 
     expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
     await nft.approve(await market.getAddress(), tokenId);
@@ -101,7 +110,9 @@ describe("FixedPrice test", function() {
         expect(await nft.ownerOf(lotInfo.tokenId)).to.be.eq(await market.getAddress());
 
         // check event
-        const event = await getLotAddedEvent(market);
+        const events = await getLotAddedEvents(market);
+        expect(events?.length).to.be.eq(1);
+        const event = events[0];
         if (event) {
             expect(event.creator).to.be.eq(await owner.getAddress());
             expect(event.id).to.be.eq(Number(await market.totalLots()) - 1);
@@ -192,5 +203,30 @@ describe("FixedPrice test", function() {
         await market.updateFee(newFee); 
 
         expect(await market.fee()).to.be.eq(newFee);
+    });
+
+    it ("Should be batch add lot", async function() {
+        const tokenIds: bigint[] = [];
+        const prices: bigint[] = [];
+        const durations: bigint[] = [];
+
+        for (let i = 0; i < batchSize; i++) {
+            tokenIds.push(BigInt(i));
+            prices.push(ethers.parseEther("0.1"));
+        }
+
+        await market.addLotBatch(await nft.getAddress(), tokenIds, prices);
+        const events = await getLotAddedEvents(market);
+        expect(events.length).to.be.eq(batchSize);
+
+        for (let i = 0; i < batchSize; i++) {
+            expect(events[i].id).to.be.eq(i);
+            expect(events[i].item).to.be.eq(await nft.getAddress());
+            expect(events[i].tokenId).to.be.eq(tokenIds[i]);
+            expect(events[i].price).to.be.eq(prices[i]);
+            expect(events[i].creator).to.be.eq(await owner.getAddress());
+        }
+
+        expect(await market.totalLots()).to.be.eq(batchSize);
     });
 })

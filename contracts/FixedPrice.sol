@@ -90,10 +90,6 @@ contract FixedPrice is
 
 
         IERC721 item = IERC721(_item);
-        if (item.ownerOf(tokenId) != creator) {
-            revert MarketplaceOwnershipError();
-        }
-
         item.safeTransferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
@@ -109,6 +105,49 @@ contract FixedPrice is
         emit LotAdded(totalLots, _item, tokenId, price, creator);
 
         totalLots++;
+    }
+
+    function addLotBatch(
+        address _item,
+        uint256[] calldata tokenIds,
+        uint256[] calldata prices
+    ) external {
+        if (tokenIds.length != prices.length) {
+            revert ArrayLengthMissmatch();
+        }
+
+        if (!_supportsERC721Interface(_item)) {
+            revert MarketplaceNoIERC721Support();
+        }
+
+        address creator = _msgSender();
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert MarketplaceNoIERC721ReceiverSupport();
+        }
+
+
+        IERC721 item = IERC721(_item);
+        for (uint i = 0; i < tokenIds.length; i++) {
+            if (prices[i] == 0) {
+                revert MarketplaceInvalidInputData();
+            }
+
+            item.safeTransferFrom(creator, address(this), tokenIds[i]);
+
+            _lots[totalLots] = Lot({
+                    item: item,
+                    sold: false,
+                    closed: false,
+                    price: prices[i],
+                    tokenId: tokenIds[i],
+                    creator: creator,
+                    buyer: creator
+            });
+
+            emit LotAdded(totalLots, _item, tokenIds[i], prices[i], creator);
+
+            totalLots++;
+        }
     }
 
     function buyLot(

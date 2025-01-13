@@ -6,6 +6,8 @@ interface IFixedPrice {
 
     error InsufficientValue();
 
+    error ArrayLengthMissmatch();
+
     event LotAdded(
         uint256 indexed id,
         address indexed item,

@@ -87,9 +87,6 @@ contract Offer is
         }
 
         IERC721 item = IERC721(_item);
-        if (item.ownerOf(tokenId) != creator) {
-            revert MarketplaceOwnershipError();
-        }
 
         item.safeTransferFrom(creator, address(this), tokenId);
 
@@ -106,6 +103,40 @@ contract Offer is
         emit LotAdded(totalLots, _item, tokenId, creator);
 
         totalLots++;
+    }
+
+    function addLotBatch(
+        address _item,
+        uint256[] calldata tokenIds
+    ) external {
+        if (!_supportsERC721Interface(_item)) {
+            revert MarketplaceNoIERC721Support();
+        }
+
+        address creator = _msgSender();
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert MarketplaceNoIERC721ReceiverSupport();
+        }
+
+        IERC721 item = IERC721(_item);
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            item.safeTransferFrom(creator, address(this), tokenIds[i]);
+
+            _lots[totalLots] = Lot({
+                    item: item,
+                    sold: false,
+                    closed: false,
+                    price: 0,
+                    tokenId: tokenIds[i],
+                    creator: creator,
+                    buyer: creator
+            });
+
+            emit LotAdded(totalLots, _item, tokenIds[i], creator);
+
+            totalLots++;
+        }
     }
 
     function approveLot(

@@ -6,6 +6,8 @@ interface IAuction {
 
     error InsufficientBidValue();
 
+    error ArrayLengthMissmatch();
+
     event LotAdded(
         uint256 indexed id,
         address indexed item,

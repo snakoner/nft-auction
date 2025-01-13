@@ -93,9 +93,6 @@ contract Auction is
         }
 
         IERC721 item = IERC721(_item);
-        if (item.ownerOf(tokenId) != creator) {
-            revert MarketplaceOwnershipError();
-        }
 
         item.safeTransferFrom(creator, address(this), tokenId);
 
@@ -114,6 +111,55 @@ contract Auction is
         emit LotAdded(totalLots, _item, tokenId, startPrice, _lots[totalLots].timeout, creator);
 
         totalLots++;
+    }
+
+    /*/////////////////////////////////////////////
+    ///////// Write functions            /////////
+    ///////////////////////////////////////////*/
+    function addLotBatch(
+        address _item,
+        uint256[] calldata tokenIds,
+        uint256[] calldata startPrices,
+        uint64[] calldata durations
+    ) external {
+        if (tokenIds.length != startPrices.length || tokenIds.length != durations.length) {
+            revert ArrayLengthMissmatch();
+        }
+
+        if (!_supportsERC721Interface(_item)) {
+            revert MarketplaceNoIERC721Support();
+        }
+
+        address creator = _msgSender();
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert MarketplaceNoIERC721ReceiverSupport();
+        }
+
+        IERC721 item = IERC721(_item);
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (durations[i] < MIN_DURATION || startPrices[i] == 0) {
+                revert MarketplaceInvalidInputData();
+            }
+
+            item.safeTransferFrom(creator, address(this), tokenIds[i]);
+
+            _lots[totalLots] = Lot({
+                    item: item,
+                    timeout: uint64(block.timestamp) + durations[i],                
+                    withdrawed: false,
+                    startPrice: startPrices[i],
+                    bidsNumber: 0,
+                    lastPrice: startPrices[i],
+                    tokenId: tokenIds[i],
+                    winner: creator,
+                    creator: creator
+            });
+
+            emit LotAdded(totalLots, _item, tokenIds[i], startPrices[i], _lots[totalLots].timeout, creator);
+
+            totalLots++;
+        }
     }
 
     function bidLot(uint256 id) external payable 
