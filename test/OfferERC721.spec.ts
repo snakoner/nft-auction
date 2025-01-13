@@ -7,7 +7,7 @@ import { getTransactionFee } from "./common";
 
 const batchSize = 20;
 const tokenId = 0;
-const fee: bigint = BigInt(20);  // 0.2%
+const fee = BigInt(20);  // 0.2%
 const offerValue = ethers.parseEther("0.1");
 
 let market: Offer;

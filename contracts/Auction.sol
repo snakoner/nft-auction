@@ -73,26 +73,16 @@ contract Auction is
     /*/////////////////////////////////////////////
     ///////// Write functions            /////////
     ///////////////////////////////////////////*/
-    function addLot(
-        address _item,
+    function _addLot(
+        IERC721 item,
         uint256 tokenId,
         uint256 startPrice,
-        uint64 duration
-    ) external {
+        uint64 duration,
+        address creator
+    ) private {
         if (duration < MIN_DURATION || startPrice == 0) {
             revert MarketplaceInvalidInputData();
         }
-
-        if (!_supportsERC721Interface(_item)) {
-            revert MarketplaceNoIERC721Support();
-        }
-
-        address creator = _msgSender();
-        if (!_supportsERC721ReceiverInterface(creator)) {
-            revert MarketplaceNoIERC721ReceiverSupport();
-        }
-
-        IERC721 item = IERC721(_item);
 
         item.transferFrom(creator, address(this), tokenId);
 
@@ -108,14 +98,30 @@ contract Auction is
                 creator: creator
         });
 
-        emit LotAdded(totalLots, _item, tokenId, startPrice, _lots[totalLots].timeout, creator);
+        emit LotAdded(totalLots, address(item), tokenId, startPrice, _lots[totalLots].timeout, creator);
 
         totalLots++;
     }
 
-    /*/////////////////////////////////////////////
-    ///////// Write functions            /////////
-    ///////////////////////////////////////////*/
+    function addLot(
+        address _item,
+        uint256 tokenId,
+        uint256 startPrice,
+        uint64 duration
+    ) external {
+        if (!_supportsERC721Interface(_item)) {
+            revert MarketplaceNoIERC721Support();
+        }
+
+        address creator = _msgSender();
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert MarketplaceNoIERC721ReceiverSupport();
+        }
+
+        IERC721 item = IERC721(_item);
+        _addLot(item, tokenId, startPrice, duration, creator);
+    }
+
     function addLotBatch(
         address _item,
         uint256[] calldata tokenIds,
@@ -136,29 +142,8 @@ contract Auction is
         }
 
         IERC721 item = IERC721(_item);
-
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            if (durations[i] < MIN_DURATION || startPrices[i] == 0) {
-                revert MarketplaceInvalidInputData();
-            }
-
-            item.transferFrom(creator, address(this), tokenIds[i]);
-
-            _lots[totalLots] = Lot({
-                    item: item,
-                    timeout: uint64(block.timestamp) + durations[i],                
-                    withdrawed: false,
-                    startPrice: startPrices[i],
-                    bidsNumber: 0,
-                    lastPrice: startPrices[i],
-                    tokenId: tokenIds[i],
-                    winner: creator,
-                    creator: creator
-            });
-
-            emit LotAdded(totalLots, _item, tokenIds[i], startPrices[i], _lots[totalLots].timeout, creator);
-
-            totalLots++;
+            _addLot(item, tokenIds[i], startPrices[i], durations[i], creator);
         }
     }
 
@@ -205,7 +190,6 @@ contract Auction is
 
         // if have winner send ETH to creator
         if (lot.bidsNumber != 0) {
-
             price = _calculatePriceWithFeeAndUpdate(lot.lastPrice);
 
             (bool success, ) = lot.creator.call{value: price}("");

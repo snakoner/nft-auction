@@ -7,7 +7,8 @@ import { getTransactionFee } from "./common";
 
 const batchSize = 20;
 const tokenId = 0;
-const fee: bigint = BigInt(20);  // 0.2%
+const fee = BigInt(20);  // 0.2%
+
 let market: FixedPrice;
 let nft: NFT;
 let owner: HardhatEthersSigner;

@@ -70,6 +70,28 @@ contract Offer is
         );
     }
 
+    function _addLot(
+        IERC721 item,
+        uint256 tokenId,
+        address creator
+    ) private {
+        item.transferFrom(creator, address(this), tokenId);
+
+        _lots[totalLots] = Lot({
+                item: item,
+                sold: false,
+                closed: false,
+                price: 0,
+                tokenId: tokenId,
+                creator: creator,
+                buyer: creator
+        });
+
+        emit LotAdded(totalLots, address(item), tokenId, creator);
+
+        totalLots++;
+    }
+
     /*/////////////////////////////////////////////
     ///////// Write functions             ////////
     ///////////////////////////////////////////*/
@@ -87,22 +109,7 @@ contract Offer is
         }
 
         IERC721 item = IERC721(_item);
-
-        item.transferFrom(creator, address(this), tokenId);
-
-        _lots[totalLots] = Lot({
-                item: item,
-                sold: false,
-                closed: false,
-                price: 0,
-                tokenId: tokenId,
-                creator: creator,
-                buyer: creator
-        });
-
-        emit LotAdded(totalLots, _item, tokenId, creator);
-
-        totalLots++;
+        _addLot(item, tokenId, creator);
     }
 
     function addLotBatch(
@@ -119,23 +126,8 @@ contract Offer is
         }
 
         IERC721 item = IERC721(_item);
-
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            item.transferFrom(creator, address(this), tokenIds[i]);
-
-            _lots[totalLots] = Lot({
-                    item: item,
-                    sold: false,
-                    closed: false,
-                    price: 0,
-                    tokenId: tokenIds[i],
-                    creator: creator,
-                    buyer: creator
-            });
-
-            emit LotAdded(totalLots, _item, tokenIds[i], creator);
-
-            totalLots++;
+            _addLot(item, tokenIds[i], creator);
         }
     }
 

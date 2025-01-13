@@ -5,8 +5,6 @@ import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract ERC721Token is ERC721, Ownable {
-    error TokenNotExists(uint256 tokenId);
-
     uint256 public tokenCounter;
     string private _baseUri;
 
@@ -44,8 +42,8 @@ contract ERC721Factory is Ownable {
     function createNewToken(
         string calldata name,
         string calldata symbol,
-        string calldata baseUri) 
-    external returns (address) {
+        string calldata baseUri
+    ) external returns (address) {
         address account = _msgSender();
         address newToken = address(new ERC721Token(
             address(this),
@@ -54,7 +52,6 @@ contract ERC721Factory is Ownable {
             baseUri)); // create1
 
         ERC721Token _token = ERC721Token(newToken);
-
         _token.mint(account);
         _token.transferOwnership(account);
 
