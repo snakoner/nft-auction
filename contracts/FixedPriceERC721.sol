@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { IERC721Receiver } from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { MarketplaceCommonERC721 } from "./MarketplaceCommonERC721.sol";
 import { IFixedPriceERC721 } from "./interfaces/IFixedPriceERC721.sol";
 
 contract FixedPriceERC721 is 
-    Ownable,
-    ReentrancyGuard, 
-    IERC721Receiver,
+    MarketplaceCommonERC721,
     IFixedPriceERC721 
 {
     enum LotState {
@@ -30,26 +25,14 @@ contract FixedPriceERC721 is
         address buyer;
     }
 
-    uint256 public totalLots;
-    uint256 private _feeValue;
     mapping (uint256 id => Lot) private _lots;
-    uint24 public fee;	// 10^4 -> (0.01% .. 100%)
-
-    modifier lotExist(uint256 id) {
-        require(totalLots > id, ERC721LotNotExist());
-        _;
-    }
 
     modifier onlyCreator(uint256 id) {
         require(_lots[id].creator == msg.sender, FixedPriceERC721OnlyCreatorAllowed());
         _;
     }
 
-    constructor(uint24 _fee) Ownable(msg.sender) {
-        fee = _fee;
-
-        emit FeeUpdated(0, fee);
-    }
+    constructor(uint24 _fee) MarketplaceCommonERC721(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -61,28 +44,6 @@ contract FixedPriceERC721 is
             return LotState.Closed;
         } else {
             return LotState.Active;
-        }
-    }
-
-    function _encodeState(LotState state) private pure returns (bytes32) {
-        return bytes32(1 << uint8(state));
-    }
-
-    function _supportsERC721Interface(address contractAddress) private view returns (bool) {
-        uint256 codeLength;
-
-        assembly {
-            codeLength := extcodesize(contractAddress)
-        }
-
-        if (codeLength == 0) {
-            return false;
-        }
-
-        try IERC165(contractAddress).supportsInterface(0x80ac58cd) returns (bool result) {
-            return result;
-        } catch {
-            return false;
         }
     }
 
@@ -149,7 +110,7 @@ contract FixedPriceERC721 is
         uint256 id
     ) external payable nonReentrant lotExist(id) {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Active));
+            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         uint256 value = msg.value;
@@ -178,7 +139,7 @@ contract FixedPriceERC721 is
         uint256 id
     ) external lotExist(id) onlyCreator(id) {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Active));
+            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         Lot storage lot = _lots[id];
@@ -187,35 +148,5 @@ contract FixedPriceERC721 is
         lot.item.safeTransferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);
-    }
-
-    function updateFee(uint24 newFee) external onlyOwner {
-        require(fee != newFee, ERC721FeeUpdateFailed());
-
-        emit FeeUpdated(fee, newFee);
-
-        fee = newFee;
-    }
-
-    function withdrawFee(address to) external nonReentrant onlyOwner {
-        require(_feeValue > 0, ERC721ZeroFeeValue());
-
-        emit FeeWithdrawed(to, _feeValue);
-
-        (bool success, ) = to.call{value: _feeValue}("");
-        _feeValue = 0;	// use no reentrant 
-
-        require(success, ERC721TransactionFailed());
-    }
-
-    function onERC721Received(
-        address operator,
-        address from,
-        uint256 tokenId,
-        bytes calldata data
-    ) external returns (bytes4) {
-        emit TokenReceived(operator, from, tokenId, data);
-
-        return this.onERC721Received.selector;
     }
 }

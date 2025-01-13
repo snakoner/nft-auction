@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-interface IMarketplaceERC721Common {
+interface IMarketplaceCommonERC721 {
     error ERC721OwnershipError();
 
     error ERC721AllowanceError();

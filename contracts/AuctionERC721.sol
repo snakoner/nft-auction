@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { IERC721Receiver } from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { MarketplaceCommonERC721 } from "./MarketplaceCommonERC721.sol";
 import { IAuctionERC721 } from "./interfaces/IAuctionERC721.sol";
 
 contract AuctionERC721 is 
-    Ownable,
-    ReentrancyGuard, 
-    IERC721Receiver,
-    IAuctionERC721 
+    MarketplaceCommonERC721,
+    IAuctionERC721
 {
     enum LotState {
         Active,     // timeout < block.timestamp
@@ -32,25 +27,10 @@ contract AuctionERC721 is
         address creator;
     }
 
-    uint256 public totalLots;
-    uint256 private _feeValue;
-    mapping (uint256 id => Lot) private _lots;
     uint64 constant public MIN_DURATION = 1 days;
-    uint24 public fee;	// 10^4 -> (0.01% .. 100%)
+    mapping (uint256 id => Lot) private _lots;
 
-    /*/////////////////////////////////////////////
-    ///////// Modifiers                   /////////
-    ///////////////////////////////////////////*/
-    modifier lotExist(uint256 id) {
-        require(totalLots > id, ERC721LotNotExist());
-        _;
-    }
-
-    constructor(uint24 _fee) Ownable(msg.sender) {
-        fee = _fee;
-
-        emit FeeUpdated(0, fee);
-    }
+    constructor(uint24 _fee) MarketplaceCommonERC721(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -62,28 +42,6 @@ contract AuctionERC721 is
             return LotState.Ended;
         } else {
             return LotState.Pending;
-        }
-    }
-
-    function _encodeState(LotState state) private pure returns (bytes32) {
-        return bytes32(1 << uint8(state));
-    }
-
-    function _supportsERC721Interface(address contractAddress) private view returns (bool) {
-        uint256 codeLength;
-
-        assembly {
-            codeLength := extcodesize(contractAddress)
-        }
-
-        if (codeLength == 0) {
-            return false;
-        }
-
-        try IERC165(contractAddress).supportsInterface(0x80ac58cd) returns (bool result) {
-            return result;
-        } catch {
-            return false;
         }
     }
 
@@ -159,7 +117,7 @@ contract AuctionERC721 is
         lotExist(id)  
     {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Active));
+            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         uint256 newBid = msg.value;
@@ -186,7 +144,7 @@ contract AuctionERC721 is
     // this function can be call by anyone
     function endLot(uint256 id) external nonReentrant lotExist(id) {
         if (getLotState(id) != LotState.Pending) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Pending));
+            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Pending)));
         }
 
         uint256 price = 0;
@@ -206,35 +164,5 @@ contract AuctionERC721 is
         }
 
         emit LotEnded(id, lot.winner, price);
-    }
-
-    function updateFee(uint24 newFee) external onlyOwner {
-        require(fee != newFee, ERC721FeeUpdateFailed());
-
-        emit FeeUpdated(fee, newFee);
-
-        fee = newFee;
-    }
-
-    function withdrawFee(address to) external nonReentrant onlyOwner {
-        require(_feeValue > 0, ERC721ZeroFeeValue());
-
-        emit FeeWithdrawed(to, _feeValue);
-
-        (bool success, ) = to.call{value: _feeValue}("");
-        _feeValue = 0;	// use no reentrant 
-
-        require(success, ERC721TransactionFailed());
-    }
-
-    function onERC721Received(
-        address operator,
-        address from,
-        uint256 tokenId,
-        bytes calldata data
-    ) external returns (bytes4) {
-        emit TokenReceived(operator, from, tokenId, data);
-
-        return this.onERC721Received.selector;
     }
 }

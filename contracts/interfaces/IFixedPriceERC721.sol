@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { IMarketplaceERC721Common } from "./IMarketplaceERC721Common.sol";
-
-interface IFixedPriceERC721 is IMarketplaceERC721Common {
+interface IFixedPriceERC721 {
     error FixedPriceERC721OnlyCreatorAllowed();
 
     error FixedPriceERC721InsufficientValue();

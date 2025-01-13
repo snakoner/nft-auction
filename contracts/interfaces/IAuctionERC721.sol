@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { IMarketplaceERC721Common } from "./IMarketplaceERC721Common.sol";
-
-interface IAuctionERC721 is IMarketplaceERC721Common {
+interface IAuctionERC721 {
     error AuctionERC721AuctionAlreadyEnded();
 
     error AuctionERC721InsufficientBidValue();
