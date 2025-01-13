@@ -7,17 +7,18 @@ import "@nomicfoundation/hardhat-chai-matchers";
 import {ContractTransactionResponse, ContractTransactionReceipt} from "ethers";
 
 const tokenId = 0;
-
-interface Bidder {
-    signer: HardhatEthersSigner;
-    bid: bigint;
-};
+const fee: bigint = BigInt(20);  // 0.2%
 
 let lotInfo = {
     item: ethers.ZeroAddress,
     tokenId: tokenId,
     startPrice: ethers.parseEther("0.1"),
     duration: 60 * 60 * 24 * 2,      // 2 days
+};
+
+interface Bidder {
+    signer: HardhatEthersSigner;
+    bid: bigint;
 };
 
 describe("AuctionERC721 test", function() {
@@ -66,6 +67,33 @@ describe("AuctionERC721 test", function() {
         };
     }
 
+    const getFeeWithdrawedEvents = async(contract: AuctionERC721) => {
+        let events = await contract.queryFilter(contract.filters.FeeWithdrawed(), 0, "latest");
+        if (events.length == 0)
+            return null;
+
+        return {
+            to: events[0].args?.to,
+            amount: events[0].args?.amount,
+        };
+    }
+
+    const getFeeUpdatedEvents = async(contract: AuctionERC721) => {
+        let events = await contract.queryFilter(contract.filters.FeeUpdated(), 0, "latest");
+        if (events.length == 0)
+            return null;
+
+        const result: any[] = [];
+        for (const e of events) {
+            result.push({
+                oldFee: e.args?.oldFee,
+                newFee: e.args?.newFee,    
+            });
+        }
+
+        return result;
+    }
+
     const addLot = async(contract: AuctionERC721, nft: NFT) => {
         await contract.addLot(
             lotInfo.item,
@@ -94,7 +122,7 @@ describe("AuctionERC721 test", function() {
 
         // auction
         const auctionFactory = await ethers.getContractFactory("AuctionERC721");
-        const auction = await auctionFactory.deploy();
+        const auction = await auctionFactory.deploy(fee);
         await auction.waitForDeployment();
 
         // mint and approve NFT
@@ -202,17 +230,18 @@ describe("AuctionERC721 test", function() {
         const tx = await auction.endLot(0);
         const receipt = await tx.wait();
 
+        const feeValue = bidder.bid * fee / BigInt(10000);
 
         /* checks */
         // nft owner is last bidder
         expect(await nft.ownerOf(0)).to.be.eq(bidder.signer.address);
         // contract balance is 0
-        expect(await ethers.provider.getBalance(await auction.getAddress())).to.be.eq(0);
+        expect(await ethers.provider.getBalance(await auction.getAddress())).to.be.eq(feeValue);
 
         // previous owner of nft receinve last bid in ETH
         const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
 
-        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(bidder.bid - getTransactionFee(tx, receipt));
+        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(bidder.bid - getTransactionFee(tx, receipt) - feeValue);
 
         // storage after-check
         const auctionLot = await auction.getLotInfo(0);
@@ -229,7 +258,7 @@ describe("AuctionERC721 test", function() {
         const event = await getAuctionEndedEvent(auction);
         expect(event?.id).to.be.eq(0);
         expect(event?.winner).to.be.eq(bidder.signer.address);
-        expect(event?.finalPrice).to.be.eq(bidder.bid);
+        expect(event?.finalPrice).to.be.eq(bidder.bid - feeValue);
     });
 
     it ("Should be possible to end auction if there is no bidders", async function() {
@@ -285,4 +314,53 @@ describe("AuctionERC721 test", function() {
 
         await expect(auction.endLot(0)).to.be.revertedWithCustomError(auction, "AuctionERC721UnexpectedState");
     });
+
+    it ("Should be possible to withdraw fee", async function() {
+        const {auction, nft, owner, bidders} = await loadFixture(deploy);        
+        const bidder = bidders[0];
+
+        await addLot(auction, nft);
+        
+        await auction.connect(bidder.signer).bidLot(0, {value: bidder.bid});
+
+        // future is here
+        await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
+        await ethers.provider.send('evm_mine');
+
+        await auction.endLot(0);
+
+        const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
+
+        const feeValue = bidder.bid * fee / BigInt(10000);
+        const tx = await auction.withdrawFee(await owner.getAddress());
+        const receipt = await tx.wait();
+        const transactionFee = getTransactionFee(tx, receipt);
+
+        const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
+        expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(feeValue - transactionFee);
+        
+        const event = await getFeeWithdrawedEvents(auction);
+
+        expect(event?.to).to.be.eq(await owner.getAddress());
+        expect(event?.amount).to.be.eq(feeValue);
+    });
+
+    it ("Should be possible to update fee", async function() {
+        const {auction, nft, owner, bidders} = await loadFixture(deploy);        
+
+        expect(await auction.fee()).to.be.eq(fee);
+        const newFee = 400; //
+        await auction.updateFee(newFee); 
+
+        expect(await auction.fee()).to.be.eq(newFee);
+
+        const events = await getFeeUpdatedEvents(auction);
+        expect(events.length).to.be.eq(2);
+
+        expect(events[0].oldFee).to.be.eq(0);
+        expect(events[0].newFee).to.be.eq(fee);
+        expect(events[1].oldFee).to.be.eq(fee);
+        expect(events[1].newFee).to.be.eq(newFee);
+    });
+
 })

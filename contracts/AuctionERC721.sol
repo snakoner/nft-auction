@@ -33,8 +33,10 @@ contract AuctionERC721 is
 	}
 
 	uint256 public totalLots;
+	uint256 private _feeValue;
 	mapping (uint256 id => Lot) private _lots;
 	uint64 constant public MIN_DURATION = 1 days;
+	uint24 public fee;	// 10^4 -> (0.01% .. 100%)
 
 	/*/////////////////////////////////////////////
 	///////// Modifiers                   /////////
@@ -44,7 +46,11 @@ contract AuctionERC721 is
 		_;
 	}
 
-	constructor() Ownable(msg.sender) {}
+	constructor(uint24 _fee) Ownable(msg.sender) {
+		fee = _fee;
+
+		emit FeeUpdated(0, fee);
+	}
 
 	/*/////////////////////////////////////////////
 	///////// Read functions             /////////
@@ -183,7 +189,7 @@ contract AuctionERC721 is
 			revert AuctionERC721UnexpectedState(_encodeState(LotState.Pending));
 		}
 
-		uint256 lastPrice = 0;
+		uint256 price = 0;
 		Lot storage lot = _lots[id];
 		lot.withdrawed = true;
 
@@ -191,13 +197,34 @@ contract AuctionERC721 is
 
 		// if have winner send ETH to creator
 		if (lot.bidsNumber != 0) {
-			lastPrice = lot.lastPrice;
+			uint256 feeValue = lot.lastPrice * fee / 10000;
+			price = lot.lastPrice - feeValue;
+			_feeValue += feeValue;
 
-			(bool success, ) = lot.creator.call{value: lastPrice}("");
+			(bool success, ) = lot.creator.call{value: price}("");
 			require(success, AuctionERC721TransactionFailed());
 		}
 
-		emit LotEnded(id, lot.winner, lastPrice);
+		emit LotEnded(id, lot.winner, price);
+	}
+
+	function updateFee(uint24 newFee) external onlyOwner {
+		require(fee != newFee, AuctionERC721FeeUpdateFailed());
+
+		emit FeeUpdated(fee, newFee);
+
+		fee = newFee;
+	}
+
+	function withdrawFee(address to) external nonReentrant onlyOwner {
+		require(_feeValue > 0, AuctionERC721ZeroFeeValue());
+
+		emit FeeWithdrawed(to, _feeValue);
+
+		(bool success, ) = to.call{value: _feeValue}("");
+		_feeValue = 0;	// use no reentrant 
+
+		require(success, AuctionERC721TransactionFailed());
 	}
 
 	function onERC721Received(

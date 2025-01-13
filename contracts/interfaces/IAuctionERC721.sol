@@ -20,6 +20,10 @@ contract IAuctionERC721 {
 
     error AuctionERC721UnexpectedState(bytes32 expectedState);
 
+    error AuctionERC721FeeUpdateFailed();
+
+    error AuctionERC721ZeroFeeValue();
+
     event LotAdded(
         uint256 indexed id,
         address indexed item,
@@ -46,5 +50,15 @@ contract IAuctionERC721 {
         address from,
         uint256 tokenId,
         bytes data
+    );
+
+    event FeeUpdated(
+        uint24 oldFee,
+        uint24 newFee
+    );
+
+    event FeeWithdrawed(
+        address indexed to,
+        uint256 amount
     );
 }
