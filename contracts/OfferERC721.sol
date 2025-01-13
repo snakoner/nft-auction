@@ -6,18 +6,19 @@ import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import { IERC721Receiver } from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { IFixedPriceERC721 } from "./interfaces/IFixedPriceERC721.sol";
+import { IOfferERC721 } from "./interfaces/IOfferERC721.sol";
 
-contract FixedPriceERC721 is 
+contract OfferERC721 is 
     Ownable,
     ReentrancyGuard, 
     IERC721Receiver,
-    IFixedPriceERC721 
+    IOfferERC721 
 {
     enum LotState {
-        Active,     // sold == false && closed == false
-        Sold,       // sold == true
-        Closed      // closed == true
+        Created,        // price == 0
+        Purchased,      // price != 0
+        Sold,           // sold == true
+        Closed          // closed == true
     }
 
     struct Lot {
@@ -41,7 +42,7 @@ contract FixedPriceERC721 is
     }
 
     modifier onlyCreator(uint256 id) {
-        require(_lots[id].creator == msg.sender, FixedPriceERC721OnlyCreatorAllowed());
+        require(_lots[id].creator == msg.sender, OfferERC721OnlyCreatorAllowed());
         _;
     }
 
@@ -59,8 +60,10 @@ contract FixedPriceERC721 is
             return LotState.Sold;
         } else if (_lots[id].closed) {
             return LotState.Closed;
+        } else if (_lots[id].price == 0){
+            return LotState.Created;
         } else {
-            return LotState.Active;
+            return LotState.Purchased;
         }
     }
 
@@ -111,13 +114,8 @@ contract FixedPriceERC721 is
     ///////////////////////////////////////////*/
     function addLot(
         address _item,
-        uint256 tokenId,
-        uint256 price
+        uint256 tokenId
     ) external {
-        if (price == 0) {
-            revert ERC721InvalidInputData();
-        }
-
         if (!_supportsERC721Interface(_item)) {
             revert ERC721NoERC721InterfaceSupport();
         }
@@ -134,51 +132,47 @@ contract FixedPriceERC721 is
                 item: item,
                 sold: false,
                 closed: false,
-                price: price,
+                price: 0,
                 tokenId: tokenId,
                 creator: creator,
                 buyer: creator
         });
 
-        emit LotAdded(totalLots, _item, tokenId, price, creator);
+        emit LotAdded(totalLots, _item, tokenId, creator);
 
         totalLots++;
     }
 
-    function buyLot(
+    function approveLot(
         uint256 id
-    ) external payable nonReentrant lotExist(id) {
-        if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Active));
+    ) external payable nonReentrant lotExist(id) onlyCreator(id) {
+        if (getLotState(id) != LotState.Purchased) {
+            revert ERC721UnexpectedState(_encodeState(LotState.Purchased));
         }
-
-        uint256 value = msg.value;
-        if (value != _lots[id].price) {
-            revert FixedPriceERC721InsufficientValue();
-        }
-
-        address buyer = msg.sender;
 
         Lot storage lot = _lots[id];
         lot.sold = true;
-        lot.buyer = buyer;
 
-        lot.item.safeTransferFrom(address(this), buyer, lot.tokenId);
-        uint256 feeValue = value * fee / 10000;
-        uint256 price = value - feeValue;
+        lot.item.safeTransferFrom(address(this), lot.buyer, lot.tokenId);
+        uint256 feeValue = lot.price * fee / 10000;
+        uint256 price = lot.price - feeValue;
         _feeValue += feeValue;
 
         (bool success, ) = lot.creator.call{value: price}("");
         require(success, ERC721TransactionFailed());
 
-        emit LotSold(id, buyer, price);
+        emit LotApproved(id, lot.buyer, price);
     }
 
     function closeLot(
         uint256 id
     ) external lotExist(id) onlyCreator(id) {
-        if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(LotState.Active));
+        LotState state = getLotState(id);
+        if (!(state == LotState.Created || state == LotState.Purchased)) {
+            revert ERC721UnexpectedState(
+                _encodeState(LotState.Created) | 
+                _encodeState(LotState.Purchased)
+            );
         }
 
         Lot storage lot = _lots[id];
@@ -187,6 +181,35 @@ contract FixedPriceERC721 is
         lot.item.safeTransferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);
+    }
+
+    function offerLot(
+        uint256 id
+    ) external payable nonReentrant lotExist(id)  {
+        uint256 value = msg.value;
+        if (value <= _lots[id].price) {
+            revert OfferERC721InsufficientValue();
+        }
+
+        LotState state = getLotState(id);
+        if (!(state == LotState.Created || state == LotState.Purchased)) {
+            revert ERC721UnexpectedState(
+                _encodeState(LotState.Created) |
+                _encodeState(LotState.Purchased)
+            );
+        }
+
+        Lot storage lot = _lots[id];
+        if (lot.price != 0) {
+            (bool success, ) = lot.buyer.call{value: lot.price}("");
+            require(success, ERC721TransactionFailed());
+        }
+
+        address offerer = msg.sender;
+        lot.price = value;
+        lot.buyer = offerer;
+
+        emit LotOffered(id, offerer, value);
     }
 
     function updateFee(uint24 newFee) external onlyOwner {
@@ -203,7 +226,7 @@ contract FixedPriceERC721 is
         emit FeeWithdrawed(to, _feeValue);
 
         (bool success, ) = to.call{value: _feeValue}("");
-        _feeValue = 0;	// use no reentrant 
+        _feeValue = 0;	// use no reentrant, so its ok
 
         require(success, ERC721TransactionFailed());
     }
