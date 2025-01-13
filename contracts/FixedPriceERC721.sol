@@ -28,7 +28,7 @@ contract FixedPriceERC721 is
     mapping (uint256 id => Lot) private _lots;
 
     modifier onlyCreator(uint256 id) {
-        require(_lots[id].creator == msg.sender, FixedPriceERC721OnlyCreatorAllowed());
+        require(_lots[id].creator == _msgSender(), FixedPriceERC721OnlyCreatorAllowed());
         _;
     }
 
@@ -80,10 +80,16 @@ contract FixedPriceERC721 is
         }
 
         if (!_supportsERC721Interface(_item)) {
-            revert ERC721NoERC721InterfaceSupport();
+            revert ERC721NoIERC721Support();
         }
 
-        address creator = msg.sender;
+        address creator = _msgSender();
+
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert ERC721NoIERC721ReceiverSupport();
+        }
+
+
         IERC721 item = IERC721(_item);
         if (item.ownerOf(tokenId) != creator) {
             revert ERC721OwnershipError();
@@ -118,16 +124,14 @@ contract FixedPriceERC721 is
             revert FixedPriceERC721InsufficientValue();
         }
 
-        address buyer = msg.sender;
+        address buyer = _msgSender();
 
         Lot storage lot = _lots[id];
         lot.sold = true;
         lot.buyer = buyer;
 
         lot.item.safeTransferFrom(address(this), buyer, lot.tokenId);
-        uint256 feeValue = value * fee / 10000;
-        uint256 price = value - feeValue;
-        _feeValue += feeValue;
+        uint256 price = _calculatePriceWithFeeAndUpdate(value);
 
         (bool success, ) = lot.creator.call{value: price}("");
         require(success, ERC721TransactionFailed());

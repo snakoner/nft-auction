@@ -6,7 +6,9 @@ interface IMarketplaceCommonERC721 {
 
     error ERC721AllowanceError();
 
-    error ERC721NoERC721InterfaceSupport();
+    error ERC721NoIERC721Support();
+
+    error ERC721NoIERC721ReceiverSupport();
 
     error ERC721InvalidInputData();
 

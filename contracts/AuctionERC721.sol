@@ -84,10 +84,15 @@ contract AuctionERC721 is
         }
 
         if (!_supportsERC721Interface(_item)) {
-            revert ERC721NoERC721InterfaceSupport();
+            revert ERC721NoIERC721Support();
         }
 
-        address creator = msg.sender;
+        address creator = _msgSender();
+
+        if (!_supportsERC721ReceiverInterface(creator)) {
+            revert ERC721NoIERC721ReceiverSupport();
+        }
+
         IERC721 item = IERC721(_item);
         if (item.ownerOf(tokenId) != creator) {
             revert ERC721OwnershipError();
@@ -124,7 +129,7 @@ contract AuctionERC721 is
         if (newBid < _lots[id].lastPrice) 
             revert AuctionERC721InsufficientBidValue();
 
-        address bidder = msg.sender;
+        address bidder = _msgSender();
         address oldBidder = _lots[id].winner;
         uint256 oldBid = _lots[id].lastPrice;
 
@@ -155,9 +160,8 @@ contract AuctionERC721 is
 
         // if have winner send ETH to creator
         if (lot.bidsNumber != 0) {
-            uint256 feeValue = lot.lastPrice * fee / 10000;
-            price = lot.lastPrice - feeValue;
-            _feeValue += feeValue;
+
+            price = _calculatePriceWithFeeAndUpdate(lot.lastPrice);
 
             (bool success, ) = lot.creator.call{value: price}("");
             require(success, ERC721TransactionFailed());

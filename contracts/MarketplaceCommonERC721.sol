@@ -16,11 +16,13 @@ abstract contract MarketplaceCommonERC721 is
     uint256 public totalLots;
     uint256 internal _feeValue;
     uint24 public fee;	// 10^4 -> (0.01% .. 100%)
+    uint24 public constant PRECISION = 10000;
 
     constructor(uint24 _fee) Ownable(msg.sender) {
+        require(_fee <= PRECISION, ERC721InvalidInputData());
         fee = _fee;
 
-        emit FeeUpdated(0, fee);
+        emit FeeUpdated(0, _fee);
     }
 
     /*/////////////////////////////////////////////
@@ -60,8 +62,35 @@ abstract contract MarketplaceCommonERC721 is
         }
     }
 
+
+    function _supportsERC721ReceiverInterface(address sender) internal view returns (bool) {
+        uint256 codeLength;
+
+        assembly {
+            codeLength := extcodesize(sender)
+        }
+
+        // this is account
+        if (codeLength == 0) {
+            return true;
+        }
+
+        try IERC165(sender).supportsInterface(0x150b7a02) returns (bool result) {
+            return result;
+        } catch {
+            return false;
+        }
+    }
+
     function _encodeState(uint8 state) internal pure returns (bytes32) {
         return bytes32(1 << uint8(state));
+    }
+
+    function _calculatePriceWithFeeAndUpdate(uint256 value) internal returns (uint256) {
+        uint256 feeValue = value * fee / 10000;
+        _feeValue += feeValue;
+
+        return value - feeValue;
     }
 
     function updateFee(uint24 newFee) public virtual onlyOwner {
