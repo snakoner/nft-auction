@@ -88,7 +88,7 @@ contract Offer is
 
         IERC721 item = IERC721(_item);
 
-        item.safeTransferFrom(creator, address(this), tokenId);
+        item.transferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
                 item: item,
@@ -121,7 +121,7 @@ contract Offer is
         IERC721 item = IERC721(_item);
 
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            item.safeTransferFrom(creator, address(this), tokenIds[i]);
+            item.transferFrom(creator, address(this), tokenIds[i]);
 
             _lots[totalLots] = Lot({
                     item: item,
@@ -149,7 +149,7 @@ contract Offer is
         Lot storage lot = _lots[id];
         lot.sold = true;
 
-        lot.item.safeTransferFrom(address(this), lot.buyer, lot.tokenId);
+        lot.item.transferFrom(address(this), lot.buyer, lot.tokenId);
         
         uint256 price = _calculatePriceWithFeeAndUpdate(lot.price);
 
@@ -173,7 +173,7 @@ contract Offer is
         Lot storage lot = _lots[id];
         lot.closed = true;
 
-        lot.item.safeTransferFrom(address(this), lot.creator, lot.tokenId);
+        lot.item.transferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);
     }

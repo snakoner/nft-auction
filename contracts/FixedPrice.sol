@@ -90,7 +90,7 @@ contract FixedPrice is
 
 
         IERC721 item = IERC721(_item);
-        item.safeTransferFrom(creator, address(this), tokenId);
+        item.transferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
                 item: item,
@@ -132,7 +132,7 @@ contract FixedPrice is
                 revert MarketplaceInvalidInputData();
             }
 
-            item.safeTransferFrom(creator, address(this), tokenIds[i]);
+            item.transferFrom(creator, address(this), tokenIds[i]);
 
             _lots[totalLots] = Lot({
                     item: item,
@@ -168,7 +168,7 @@ contract FixedPrice is
         lot.sold = true;
         lot.buyer = buyer;
 
-        lot.item.safeTransferFrom(address(this), buyer, lot.tokenId);
+        lot.item.transferFrom(address(this), buyer, lot.tokenId);
         uint256 price = _calculatePriceWithFeeAndUpdate(value);
 
         (bool success, ) = lot.creator.call{value: price}("");
@@ -187,7 +187,7 @@ contract FixedPrice is
         Lot storage lot = _lots[id];
         lot.closed = true;
 
-        lot.item.safeTransferFrom(address(this), lot.creator, lot.tokenId);
+        lot.item.transferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);
     }
