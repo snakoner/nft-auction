@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-interface IOfferERC721 {
-    error OfferERC721OnlyCreatorAllowed();
+interface IOffer {
+    error OnlyCreatorAllowed();
 
-    error OfferERC721InsufficientValue();
+    error InsufficientValue();
 
     event LotAdded(
         uint256 indexed id,

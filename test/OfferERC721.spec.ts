@@ -1,7 +1,7 @@
 import {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/src/signers";
 import {ethers} from "hardhat";
 import {expect} from "chai";
-import {OfferERC721, NFT} from "../typechain-types";
+import {Offer, NFT} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
@@ -9,7 +9,7 @@ const tokenId = 0;
 const fee: bigint = BigInt(20);  // 0.2%
 const offerValue = ethers.parseEther("0.1");
 
-let market: OfferERC721;
+let market: Offer;
 let nft: NFT;
 let owner: HardhatEthersSigner;
 let offerer: HardhatEthersSigner;
@@ -20,7 +20,7 @@ let lotInfo = {
 };
 
 /* helpers */
-const getLotAddedEvent = async(market: OfferERC721) => {
+const getLotAddedEvent = async(market: Offer) => {
     let events = await market.queryFilter(market.filters.LotAdded(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -33,7 +33,7 @@ const getLotAddedEvent = async(market: OfferERC721) => {
     };
 }
 
-const getLotApprovedEvent = async(market: OfferERC721) => {
+const getLotApprovedEvent = async(market: Offer) => {
     let events = await market.queryFilter(market.filters.LotApproved(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -45,7 +45,7 @@ const getLotApprovedEvent = async(market: OfferERC721) => {
     };
 }
 
-const getLotClosedEvent = async(market: OfferERC721) => {
+const getLotClosedEvent = async(market: Offer) => {
     let events = await market.queryFilter(market.filters.LotClosed(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -55,7 +55,7 @@ const getLotClosedEvent = async(market: OfferERC721) => {
     };
 }
 
-const getLotOfferedEvent = async(market: OfferERC721) => {
+const getLotOfferedEvent = async(market: Offer) => {
     let events = await market.queryFilter(market.filters.LotOffered(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -67,7 +67,7 @@ const getLotOfferedEvent = async(market: OfferERC721) => {
     };
 }
 
-const addLot = async(market: OfferERC721, nft: NFT) => {
+const addLot = async(market: Offer, nft: NFT) => {
     await market.addLot(
         lotInfo.item,
         lotInfo.tokenId,
@@ -88,7 +88,7 @@ const init = async() => {
     lotInfo.item = await nft.getAddress();
 
     // auction
-    const marketFactory = await ethers.getContractFactory("OfferERC721");
+    const marketFactory = await ethers.getContractFactory("Offer");
     market = await marketFactory.deploy(fee);
     await market.waitForDeployment();
 
@@ -101,7 +101,7 @@ const init = async() => {
     expect(await nft.getApproved(tokenId)).to.be.eq(await market.getAddress());
 }
 
-describe("OfferERC721 test", function() {
+describe("Offer test", function() {
     beforeEach(async function () {
         await init();
     });
@@ -147,7 +147,7 @@ describe("OfferERC721 test", function() {
 
     it ("Should not be possible to approve lot if LotState is Created", async function() {
         await addLot(market, nft);
-        await expect(market.approveLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.approveLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should be possible to approve lot", async function() {
@@ -189,7 +189,7 @@ describe("OfferERC721 test", function() {
         await addLot(market, nft);
         await market.closeLot(0);
 
-        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should not be possible to close lot if AuctionState is Closed", async function() {
@@ -197,7 +197,7 @@ describe("OfferERC721 test", function() {
         await market.connect(offerer).offerLot(0, {value: offerValue});
         await market.approveLot(0);
         
-        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should be possible to withdraw fee", async function() {

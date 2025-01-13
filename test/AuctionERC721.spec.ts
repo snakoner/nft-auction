@@ -1,13 +1,13 @@
 import {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/src/signers";
 import {ethers} from "hardhat";
 import {expect} from "chai";
-import {AuctionERC721, NFT} from "../typechain-types";
+import {Auction, NFT} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
 const tokenId = 0;
 const fee: bigint = BigInt(20);  // 0.2%
-let market: AuctionERC721;
+let market: Auction;
 let nft: NFT;
 let owner: HardhatEthersSigner;
 let bidders: Bidder[] = [];
@@ -19,7 +19,7 @@ let lotInfo = {
 };
 
 /* helpers */
-const getLotAddedEvent = async(market: AuctionERC721) => {
+const getLotAddedEvent = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.LotAdded(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -34,7 +34,7 @@ const getLotAddedEvent = async(market: AuctionERC721) => {
     };
 }
 
-const getLotBiddedEvents = async(market: AuctionERC721) => {
+const getLotBiddedEvents = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.LotBidded(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -51,7 +51,7 @@ const getLotBiddedEvents = async(market: AuctionERC721) => {
     return result;
 }
 
-const getAuctionEndedEvent = async(market: AuctionERC721) => {
+const getAuctionEndedEvent = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.LotEnded(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -63,7 +63,7 @@ const getAuctionEndedEvent = async(market: AuctionERC721) => {
     };
 }
 
-const getFeeWithdrawedEvents = async(market: AuctionERC721) => {
+const getFeeWithdrawedEvents = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.FeeWithdrawed(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -74,7 +74,7 @@ const getFeeWithdrawedEvents = async(market: AuctionERC721) => {
     };
 }
 
-const getFeeUpdatedEvents = async(market: AuctionERC721) => {
+const getFeeUpdatedEvents = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.FeeUpdated(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -90,7 +90,7 @@ const getFeeUpdatedEvents = async(market: AuctionERC721) => {
     return result;
 }
 
-const addLot = async(market: AuctionERC721) => {
+const addLot = async(market: Auction) => {
     await market.addLot(
         lotInfo.item,
         lotInfo.tokenId,
@@ -118,7 +118,7 @@ const init = async() => {
     lotInfo.item = await nft.getAddress();
 
     // auction
-    const marketFactory = await ethers.getContractFactory("AuctionERC721");
+    const marketFactory = await ethers.getContractFactory("Auction");
     market = await marketFactory.deploy(fee);
     await market.waitForDeployment();
 
@@ -143,7 +143,7 @@ const init = async() => {
     }
 }
 
-describe("AuctionERC721 test", function() {
+describe("Auction test", function() {
     beforeEach(async function() {
         await init();
     });
@@ -290,7 +290,7 @@ describe("AuctionERC721 test", function() {
     it ("Should not be possible to end auction if AuctionState is active", async function() {
         await addLot(market);
         
-        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should not be possible to end auction if AuctionState is Ended", async function() {
@@ -301,7 +301,7 @@ describe("AuctionERC721 test", function() {
         await ethers.provider.send('evm_mine');
         await market.endLot(0);
 
-        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should be possible to withdraw fee", async function() {

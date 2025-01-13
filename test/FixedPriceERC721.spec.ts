@@ -1,13 +1,13 @@
 import {HardhatEthersSigner} from "@nomicfoundation/hardhat-ethers/src/signers";
 import {ethers} from "hardhat";
 import {expect} from "chai";
-import {FixedPriceERC721, NFT} from "../typechain-types";
+import {FixedPrice, NFT} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
 const tokenId = 0;
 const fee: bigint = BigInt(20);  // 0.2%
-let market: FixedPriceERC721;
+let market: FixedPrice;
 let nft: NFT;
 let owner: HardhatEthersSigner;
 let buyer: HardhatEthersSigner;
@@ -18,7 +18,7 @@ let lotInfo = {
 };
 
 /* helpers */
-const getLotAddedEvent = async(market: FixedPriceERC721) => {
+const getLotAddedEvent = async(market: FixedPrice) => {
     let events = await market.queryFilter(market.filters.LotAdded(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -32,7 +32,7 @@ const getLotAddedEvent = async(market: FixedPriceERC721) => {
     };
 }
 
-const getLotSoldEvent = async(market: FixedPriceERC721) => {
+const getLotSoldEvent = async(market: FixedPrice) => {
     let events = await market.queryFilter(market.filters.LotSold(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -44,7 +44,7 @@ const getLotSoldEvent = async(market: FixedPriceERC721) => {
     };
 }
 
-const getLotClosedEvent = async(market: FixedPriceERC721) => {
+const getLotClosedEvent = async(market: FixedPrice) => {
     let events = await market.queryFilter(market.filters.LotClosed(), 0, "latest");
     if (events.length == 0)
         return null;
@@ -54,7 +54,7 @@ const getLotClosedEvent = async(market: FixedPriceERC721) => {
     };
 }
 
-const addLot = async(market: FixedPriceERC721, nft: NFT) => {
+const addLot = async(market: FixedPrice, nft: NFT) => {
     await market.addLot(
         lotInfo.item,
         lotInfo.tokenId,
@@ -76,7 +76,7 @@ const init = async() => {
     lotInfo.item = await nft.getAddress();
 
     // auction
-    const marketFactory = await ethers.getContractFactory("FixedPriceERC721");
+    const marketFactory = await ethers.getContractFactory("FixedPrice");
     market = await marketFactory.deploy(fee);
     await market.waitForDeployment();
 
@@ -89,7 +89,7 @@ const init = async() => {
     expect(await nft.getApproved(tokenId)).to.be.eq(await market.getAddress());
 }
 
-describe("FixedPriceERC721 test", function() {
+describe("FixedPrice test", function() {
     beforeEach(async function() {
         await init();
     });
@@ -159,14 +159,14 @@ describe("FixedPriceERC721 test", function() {
         await addLot(market, nft);
         await market.closeLot(0);
 
-        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should not be possible to close lot if AuctionState is Sold", async function() {
         await addLot(market, nft);
         await market.connect(buyer).buyLot(0, {value: lotInfo.price});
 
-        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "ERC721UnexpectedState");
+        await expect(market.closeLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should be possible to withdraw fee", async function() {

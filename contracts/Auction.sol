@@ -2,12 +2,12 @@
 pragma solidity ^0.8.28;
 
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { MarketplaceCommonERC721 } from "./MarketplaceCommonERC721.sol";
-import { IAuctionERC721 } from "./interfaces/IAuctionERC721.sol";
+import { MarketplaceCommon } from "./MarketplaceCommon.sol";
+import { IAuction } from "./interfaces/IAuction.sol";
 
-contract AuctionERC721 is 
-    MarketplaceCommonERC721,
-    IAuctionERC721
+contract Auction is 
+    MarketplaceCommon,
+    IAuction
 {
     enum LotState {
         Active,     // timeout < block.timestamp
@@ -30,7 +30,7 @@ contract AuctionERC721 is
     uint64 constant public MIN_DURATION = 1 days;
     mapping (uint256 id => Lot) private _lots;
 
-    constructor(uint24 _fee) MarketplaceCommonERC721(_fee) {}
+    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -80,22 +80,21 @@ contract AuctionERC721 is
         uint64 duration
     ) external {
         if (duration < MIN_DURATION || startPrice == 0) {
-            revert ERC721InvalidInputData();
+            revert MarketplaceInvalidInputData();
         }
 
         if (!_supportsERC721Interface(_item)) {
-            revert ERC721NoIERC721Support();
+            revert MarketplaceNoIERC721Support();
         }
 
         address creator = _msgSender();
-
         if (!_supportsERC721ReceiverInterface(creator)) {
-            revert ERC721NoIERC721ReceiverSupport();
+            revert MarketplaceNoIERC721ReceiverSupport();
         }
 
         IERC721 item = IERC721(_item);
         if (item.ownerOf(tokenId) != creator) {
-            revert ERC721OwnershipError();
+            revert MarketplaceOwnershipError();
         }
 
         item.safeTransferFrom(creator, address(this), tokenId);
@@ -122,12 +121,12 @@ contract AuctionERC721 is
         lotExist(id)  
     {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         uint256 newBid = msg.value;
         if (newBid < _lots[id].lastPrice) 
-            revert AuctionERC721InsufficientBidValue();
+            revert InsufficientBidValue();
 
         address bidder = _msgSender();
         address oldBidder = _lots[id].winner;
@@ -138,7 +137,7 @@ contract AuctionERC721 is
 
         if (_lots[id].bidsNumber != 0) {
             (bool success, ) = oldBidder.call{value: oldBid}("");
-            require(success, ERC721TransactionFailed());
+            require(success, MarketplaceTransactionFailed());
         }
 
         _lots[id].bidsNumber++;
@@ -149,7 +148,7 @@ contract AuctionERC721 is
     // this function can be call by anyone
     function endLot(uint256 id) external nonReentrant lotExist(id) {
         if (getLotState(id) != LotState.Pending) {
-            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Pending)));
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)));
         }
 
         uint256 price = 0;
@@ -164,7 +163,7 @@ contract AuctionERC721 is
             price = _calculatePriceWithFeeAndUpdate(lot.lastPrice);
 
             (bool success, ) = lot.creator.call{value: price}("");
-            require(success, ERC721TransactionFailed());
+            require(success, MarketplaceTransactionFailed());
         }
 
         emit LotEnded(id, lot.winner, price);

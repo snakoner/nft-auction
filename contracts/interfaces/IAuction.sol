@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-interface IAuctionERC721 {
-    error AuctionERC721AuctionAlreadyEnded();
+interface IAuction {
+    error AuctionAlreadyEnded();
 
-    error AuctionERC721InsufficientBidValue();
+    error InsufficientBidValue();
 
     event LotAdded(
         uint256 indexed id,

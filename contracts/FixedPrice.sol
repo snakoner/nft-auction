@@ -2,12 +2,12 @@
 pragma solidity ^0.8.28;
 
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { MarketplaceCommonERC721 } from "./MarketplaceCommonERC721.sol";
-import { IFixedPriceERC721 } from "./interfaces/IFixedPriceERC721.sol";
+import { MarketplaceCommon } from "./MarketplaceCommon.sol";
+import { IFixedPrice } from "./interfaces/IFixedPrice.sol";
 
-contract FixedPriceERC721 is 
-    MarketplaceCommonERC721,
-    IFixedPriceERC721 
+contract FixedPrice is 
+    MarketplaceCommon,
+    IFixedPrice 
 {
     enum LotState {
         Active,     // sold == false && closed == false
@@ -28,11 +28,11 @@ contract FixedPriceERC721 is
     mapping (uint256 id => Lot) private _lots;
 
     modifier onlyCreator(uint256 id) {
-        require(_lots[id].creator == _msgSender(), FixedPriceERC721OnlyCreatorAllowed());
+        require(_lots[id].creator == _msgSender(), OnlyCreatorAllowed());
         _;
     }
 
-    constructor(uint24 _fee) MarketplaceCommonERC721(_fee) {}
+    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -76,23 +76,22 @@ contract FixedPriceERC721 is
         uint256 price
     ) external {
         if (price == 0) {
-            revert ERC721InvalidInputData();
+            revert MarketplaceInvalidInputData();
         }
 
         if (!_supportsERC721Interface(_item)) {
-            revert ERC721NoIERC721Support();
+            revert MarketplaceNoIERC721Support();
         }
 
         address creator = _msgSender();
-
         if (!_supportsERC721ReceiverInterface(creator)) {
-            revert ERC721NoIERC721ReceiverSupport();
+            revert MarketplaceNoIERC721ReceiverSupport();
         }
 
 
         IERC721 item = IERC721(_item);
         if (item.ownerOf(tokenId) != creator) {
-            revert ERC721OwnershipError();
+            revert MarketplaceOwnershipError();
         }
 
         item.safeTransferFrom(creator, address(this), tokenId);
@@ -116,12 +115,12 @@ contract FixedPriceERC721 is
         uint256 id
     ) external payable nonReentrant lotExist(id) {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         uint256 value = msg.value;
         if (value != _lots[id].price) {
-            revert FixedPriceERC721InsufficientValue();
+            revert InsufficientValue();
         }
 
         address buyer = _msgSender();
@@ -134,7 +133,7 @@ contract FixedPriceERC721 is
         uint256 price = _calculatePriceWithFeeAndUpdate(value);
 
         (bool success, ) = lot.creator.call{value: price}("");
-        require(success, ERC721TransactionFailed());
+        require(success, MarketplaceTransactionFailed());
 
         emit LotSold(id, buyer, price);
     }
@@ -143,7 +142,7 @@ contract FixedPriceERC721 is
         uint256 id
     ) external lotExist(id) onlyCreator(id) {
         if (getLotState(id) != LotState.Active) {
-            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Active)));
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)));
         }
 
         Lot storage lot = _lots[id];

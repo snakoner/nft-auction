@@ -2,16 +2,16 @@
 pragma solidity ^0.8.28;
 
 import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { MarketplaceCommonERC721 } from "./MarketplaceCommonERC721.sol";
-import { IOfferERC721 } from "./interfaces/IOfferERC721.sol";
+import { MarketplaceCommon } from "./MarketplaceCommon.sol";
+import { IOffer } from "./interfaces/IOffer.sol";
 
-contract OfferERC721 is 
-    MarketplaceCommonERC721,
-    IOfferERC721 
+contract Offer is 
+    MarketplaceCommon,
+    IOffer 
 {
     enum LotState {
         Created,        // price == 0
-        Purchased,      // price != 0
+        Pending,      // price != 0
         Sold,           // sold == true
         Closed          // closed == true
     }
@@ -29,11 +29,11 @@ contract OfferERC721 is
     mapping (uint256 id => Lot) private _lots;
 
     modifier onlyCreator(uint256 id) {
-        require(_lots[id].creator == _msgSender(), OfferERC721OnlyCreatorAllowed());
+        require(_lots[id].creator == _msgSender(), OnlyCreatorAllowed());
         _;
     }
 
-    constructor(uint24 _fee) MarketplaceCommonERC721(_fee) {}
+    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -46,7 +46,7 @@ contract OfferERC721 is
         } else if (_lots[id].price == 0){
             return LotState.Created;
         } else {
-            return LotState.Purchased;
+            return LotState.Pending;
         }
     }
 
@@ -78,18 +78,17 @@ contract OfferERC721 is
         uint256 tokenId
     ) external {
         if (!_supportsERC721Interface(_item)) {
-            revert ERC721NoIERC721Support();
+            revert MarketplaceNoIERC721Support();
         }
 
         address creator = _msgSender();
-
         if (!_supportsERC721ReceiverInterface(creator)) {
-            revert ERC721NoIERC721ReceiverSupport();
+            revert MarketplaceNoIERC721ReceiverSupport();
         }
 
         IERC721 item = IERC721(_item);
         if (item.ownerOf(tokenId) != creator) {
-            revert ERC721OwnershipError();
+            revert MarketplaceOwnershipError();
         }
 
         item.safeTransferFrom(creator, address(this), tokenId);
@@ -112,8 +111,8 @@ contract OfferERC721 is
     function approveLot(
         uint256 id
     ) external payable nonReentrant lotExist(id) onlyCreator(id) {
-        if (getLotState(id) != LotState.Purchased) {
-            revert ERC721UnexpectedState(_encodeState(uint8(LotState.Purchased)));
+        if (getLotState(id) != LotState.Pending) {
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)));
         }
 
         Lot storage lot = _lots[id];
@@ -124,7 +123,7 @@ contract OfferERC721 is
         uint256 price = _calculatePriceWithFeeAndUpdate(lot.price);
 
         (bool success, ) = lot.creator.call{value: price}("");
-        require(success, ERC721TransactionFailed());
+        require(success, MarketplaceTransactionFailed());
 
         emit LotApproved(id, lot.buyer, price);
     }
@@ -133,10 +132,10 @@ contract OfferERC721 is
         uint256 id
     ) external lotExist(id) onlyCreator(id) {
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Purchased)) {
-            revert ERC721UnexpectedState(
+        if (!(state == LotState.Created || state == LotState.Pending)) {
+            revert MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) | 
-                _encodeState(uint8(LotState.Purchased))
+                _encodeState(uint8(LotState.Pending))
             );
         }
 
@@ -153,21 +152,21 @@ contract OfferERC721 is
     ) external payable nonReentrant lotExist(id)  {
         uint256 value = msg.value;
         if (value <= _lots[id].price) {
-            revert OfferERC721InsufficientValue();
+            revert InsufficientValue();
         }
 
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Purchased)) {
-            revert ERC721UnexpectedState(
+        if (!(state == LotState.Created || state == LotState.Pending)) {
+            revert MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) |
-                _encodeState(uint8(LotState.Purchased))
+                _encodeState(uint8(LotState.Pending))
             );
         }
 
         Lot storage lot = _lots[id];
         if (lot.price != 0) {
             (bool success, ) = lot.buyer.call{value: lot.price}("");
-            require(success, ERC721TransactionFailed());
+            require(success, MarketplaceTransactionFailed());
         }
 
         address offerer = _msgSender();
