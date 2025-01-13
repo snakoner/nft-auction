@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { IERC165 } from "@openzeppelin/contracts/interfaces/IERC165.sol";
-import { IERC721Receiver } from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import { IMarketplaceCommon } from "./interfaces/IMarketplaceCommon.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {IMarketplaceCommon} from "./interfaces/IMarketplaceCommon.sol";
 
 abstract contract MarketplaceCommon is 
     ReentrancyGuard, 
@@ -55,13 +56,12 @@ abstract contract MarketplaceCommon is
             return false;
         }
 
-        try IERC165(contractAddress).supportsInterface(0x80ac58cd) returns (bool result) {
+        try IERC165(contractAddress).supportsInterface(type(IERC721).interfaceId) returns (bool result) {
             return result;
         } catch {
             return false;
         }
     }
-
 
     function _supportsERC721ReceiverInterface(address sender) internal view returns (bool) {
         uint256 codeLength;
@@ -74,12 +74,20 @@ abstract contract MarketplaceCommon is
         if (codeLength == 0) {
             return true;
         }
-    
-        try IERC165(sender).supportsInterface(0x150b7a02) returns (bool result) {
+
+        // 0x150b7a02
+        try IERC165(sender).supportsInterface(type(IERC721Receiver).interfaceId) returns (bool result) {
             return result;
         } catch {
             return false;
         }
+    }
+
+    function royaltyInfo(
+        uint256 tokenId,
+        uint256 salePrice
+    ) public view returns (address receiver, uint256 amount) {
+
     }
 
     function _encodeState(uint8 state) internal pure returns (bytes32) {

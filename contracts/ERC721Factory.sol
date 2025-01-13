@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC721, IERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ERC2981} from "@openzeppelin/contracts/token/common/ERC2981.sol";
+import {ERC165, IERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract ERC721Token is ERC721, Ownable {
+contract ERC721Token is ERC721, ERC2981, Ownable {
     uint256 public tokenCounter;
     string private _baseUri;
 
@@ -18,14 +20,19 @@ contract ERC721Token is ERC721, Ownable {
         _baseUri = baseUri;
     }
 
-    function mint(address to) external onlyOwner {
+    function mint(address to, uint96 feeNumerator) external onlyOwner {
         _mint(to, tokenCounter);
+        _setTokenRoyalty(tokenCounter, owner(), feeNumerator);
 
         tokenCounter++;
     }
 
     function _baseURI() internal view override returns (string memory) {
         return _baseUri;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC2981, ERC721) returns (bool) {
+        return interfaceId == type(IERC721).interfaceId || super.supportsInterface(interfaceId);
     }
 }
 
@@ -43,17 +50,14 @@ contract ERC721Factory is Ownable {
         string calldata name,
         string calldata symbol,
         string calldata baseUri
+        // uint96 feeNumerator
     ) external returns (address) {
         address account = _msgSender();
         address newToken = address(new ERC721Token(
-            address(this),
+            account,
             name,
             symbol,
             baseUri)); // create1
-
-        ERC721Token _token = ERC721Token(newToken);
-        _token.mint(account);
-        _token.transferOwnership(account);
 
         _tokens[account].push(newToken);
 

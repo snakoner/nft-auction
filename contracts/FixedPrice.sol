@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import { IERC721 } from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import { MarketplaceCommon } from "./MarketplaceCommon.sol";
-import { IFixedPrice } from "./interfaces/IFixedPrice.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {MarketplaceCommon} from "./MarketplaceCommon.sol";
+import {IFixedPrice} from "./interfaces/IFixedPrice.sol";
 
 contract FixedPrice is 
     MarketplaceCommon,

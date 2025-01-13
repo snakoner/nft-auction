@@ -4,10 +4,11 @@ import {expect} from "chai";
 import { ERC721Factory } from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 
-const {abi: ERC721Abi} = require("../artifacts/@openzeppelin/contracts/token/ERC721/ERC721.sol/ERC721.json");
+const {abi: ERC721Abi} = require("../artifacts/contracts/ERC721Factory.sol/ERC721Token.json");
 
 let factory: ERC721Factory;
 let owner: HardhatEthersSigner;
+const royaltyFee = 50; // 0.5
 
 const init = async() => {
     owner = (await ethers.getSigners())[0];
@@ -35,12 +36,13 @@ describe("ERC721Factory test", function() {
         const events = await factory.queryFilter(factory.filters.TokenCreated(), 0, "latest");
         expect(events[0].args.creator).to.be.eq(await owner.getAddress());
         const nftAddress = events[0].args.token;
+        const erc721Contract = new ethers.Contract(nftAddress, ERC721Abi, owner);
+
+        await erc721Contract.mint(await owner.getAddress(), 3);
 
         const nftNumber = await factory.accountDeploymentNumber(await owner.getAddress());
         const nftDeployments = await factory.getAccountDeployments(await owner.getAddress());
         const nftDeployment = await factory.getAccountDeployment(await owner.getAddress(), Number(nftNumber) - 1);
-
-        const erc721Contract = new ethers.Contract(nftAddress, ERC721Abi, ethers.provider);
 
         expect(nftNumber).to.be.eq(1);
         expect(nftDeployments[0]).to.be.eq(nftAddress);
