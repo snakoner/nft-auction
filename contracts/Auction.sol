@@ -34,10 +34,11 @@ contract Auction is
     mapping (uint256 id => Lot) private _lots;
 
     constructor(
+        string memory name,
         uint96 _fee,
         uint64 _minDuration,
         uint64 _deadlineForExtensionTime
-    ) Marketplace(_fee) {
+    ) Marketplace(name, _fee) {
         minDuration = _minDuration;
         deadlineForExtensionTime = _deadlineForExtensionTime;
 

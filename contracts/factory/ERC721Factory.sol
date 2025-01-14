@@ -53,11 +53,15 @@ contract ERC721Factory is Ownable {
         // uint96 feeNumerator
     ) external returns (address) {
         address account = _msgSender();
-        address newToken = address(new ERC721Token(
-            account,
-            name,
-            symbol,
-            baseUri)); // create1
+        address newToken = address(
+            new ERC721Token{salt: keccak256(abi.encodePacked(name, symbol, account))}
+            (
+                account,
+                name,
+                symbol,
+                baseUri
+            )
+        ); // create2
 
         _tokens[account].push(newToken);
 

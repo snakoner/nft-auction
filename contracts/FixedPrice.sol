@@ -31,7 +31,10 @@ contract FixedPrice is
         _;
     }
 
-    constructor(uint96 _fee) Marketplace(_fee) {}
+    constructor(
+        string memory name,
+        uint96 _fee
+    ) Marketplace(name, _fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////

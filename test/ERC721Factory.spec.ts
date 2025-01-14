@@ -28,7 +28,7 @@ describe("ERC721Factory test", function() {
     it ("Should be possible to create ERC721", async function() {
         const tokenName = "My Collection";
         const tokenSymbol = "MC";
-        const baseUri = "ipfs://QmbWqxBEKC3P8tqsKc98xmjnA4GZB1zUJx8ofYfN1E4YBz/";
+        const baseUri = "https://token-cdn-domain/{id}.json/";
 
         await factory.createNewToken(tokenName, tokenSymbol, baseUri);
         

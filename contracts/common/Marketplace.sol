@@ -15,12 +15,14 @@ abstract contract Marketplace is
     IERC721Receiver, 
     IMarketplace
 {
+    string public name;
     uint256 public totalLots;
-    uint256 internal _feeValue;
-    uint96 public fee;	// 10^4 -> (0.01% .. 100%)
+    uint256 internal _feeCollected;
+    uint96 public fee;	// [0..._feeDenominator()]
 
-    constructor(uint96 _fee) Ownable(msg.sender) {
+    constructor(string memory _name, uint96 _fee) Ownable(msg.sender) {
         require(_fee <= _feeDenominator(), MarketplaceInvalidInputData());
+        name = _name;
         fee = _fee;
 
         emit FeeUpdated(0, _fee);
@@ -123,7 +125,7 @@ abstract contract Marketplace is
 
         // update marketplace fee value
         uint256 feeValue = salePrice * fee / 10000;
-        _feeValue += feeValue;
+        _feeCollected += feeValue;
 
         return salePrice - feeValue;
     }
@@ -136,8 +138,8 @@ abstract contract Marketplace is
         return _feeDenominator();
     }
 
-    function getFeeValue() public view returns (uint256) {
-        return _feeValue;
+    function getFeeCollected() public view returns (uint256) {
+        return _feeCollected;
     }
 
     function updateFee(uint96 newFee) external onlyOwner {
@@ -149,12 +151,12 @@ abstract contract Marketplace is
     }
 
     function withdrawFee(address to) external nonReentrant onlyOwner {
-        require(_feeValue > 0, MarketplaceZeroFeeValue());
+        require(_feeCollected > 0, MarketplaceZeroFeeValue());
 
-        emit FeeWithdrawed(to, _feeValue);
+        emit FeeWithdrawed(to, _feeCollected);
 
-        (bool success, ) = to.call{value: _feeValue}("");
-        _feeValue = 0;	// use no reentrant 
+        (bool success, ) = to.call{value: _feeCollected}("");
+        _feeCollected = 0;	// use no reentrant 
 
         require(success, MarketplaceTransactionFailed());
     }

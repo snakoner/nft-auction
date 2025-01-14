@@ -6,6 +6,7 @@ import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
 // market deployment data
+const name = "Fixed Price Marketplace ERC721";
 const fee = BigInt(20);  // 0.2%
 
 const batchSize = 20;
@@ -89,7 +90,7 @@ const init = async() => {
 
     // auction
     const marketFactory = await ethers.getContractFactory("FixedPrice");
-    market = await marketFactory.deploy(fee);
+    market = await marketFactory.deploy(name, fee);
     await market.waitForDeployment();
 
     // mint and approve NFT
@@ -104,7 +105,7 @@ const init = async() => {
         await owner.getAddress(),
         "NFT ERC2981",
         "NFT",
-        "ipfs://QmbWqxBEKC3P8tqsKc98xmjnA4GZB1zUJx8ofYfN1E4YBz",
+        "https://token-cdn-domain/{id}.json",
     );
 
     await nftERC2981.waitForDeployment();

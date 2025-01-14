@@ -37,9 +37,10 @@ contract Offer is
     }
 
     constructor(
+        string memory name,
         uint96 _fee,
         uint64 _minDuration
-    ) Marketplace(_fee) {
+    ) Marketplace(name, _fee) {
         minDuration = _minDuration;
         emit MinDurationUpdated(0, minDuration);
     }
