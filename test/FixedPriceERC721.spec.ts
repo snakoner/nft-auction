@@ -5,9 +5,11 @@ import {FixedPrice, NFT,ERC721Token} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
+// market deployment data
+const fee = BigInt(20);  // 0.2%
+
 const batchSize = 20;
 const tokenId = 0;
-const fee = BigInt(20);  // 0.2%
 const feeNumerator = BigInt(200); // 2%
 
 let market: FixedPrice;

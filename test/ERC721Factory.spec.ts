@@ -4,7 +4,7 @@ import {expect} from "chai";
 import { ERC721Factory } from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 
-const {abi: ERC721Abi} = require("../artifacts/contracts/ERC721Factory.sol/ERC721Token.json");
+const {abi: ERC721Abi} = require("../artifacts/contracts/factory/ERC721Factory.sol/ERC721Token.json");
 
 let factory: ERC721Factory;
 let owner: HardhatEthersSigner;

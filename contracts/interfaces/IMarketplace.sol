@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-interface IMarketplaceCommon {
+interface IMarketplace {
     error MarketplaceOwnershipError();
 
     error MarketplaceAllowanceError();
@@ -22,16 +22,18 @@ interface IMarketplaceCommon {
 
     error MarketplaceZeroFeeValue();
 
+    error MarketplaceArrayLengthMissmatch();
+
     event TokenReceived(
-        address operator,
-        address from,
+        address indexed operator,
+        address indexed from,
         uint256 tokenId,
         bytes data
     );
 
     event FeeUpdated(
-        uint24 oldFee,
-        uint24 newFee
+        uint96 oldFee,
+        uint96 newFee
     );
 
     event FeeWithdrawed(

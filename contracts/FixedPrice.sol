@@ -2,23 +2,22 @@
 pragma solidity ^0.8.28;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {MarketplaceCommon} from "./MarketplaceCommon.sol";
+import {Marketplace} from "./common/Marketplace.sol";
 import {IFixedPrice} from "./interfaces/IFixedPrice.sol";
 
 contract FixedPrice is 
-    MarketplaceCommon,
+    Marketplace,
     IFixedPrice 
 {
     enum LotState {
-        Active,     // sold == false && closed == false
-        Sold,       // sold == true
-        Closed      // closed == true
+        Active,     
+        Sold,       
+        Closed    
     }
 
     struct Lot {
-        IERC721 token;     
-        bool sold;
-        bool closed;
+        IERC721 token;
+        LotState state;
         uint256 price;
         uint256 tokenId;
         address creator;
@@ -32,24 +31,21 @@ contract FixedPrice is
         _;
     }
 
-    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
+    constructor(uint96 _fee) Marketplace(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
     ///////////////////////////////////////////*/
+
+    // @notice Returns the current state of a specified lot.
     function getLotState(uint256 id) public view returns (LotState) {
-        if (_lots[id].sold) {
-            return LotState.Sold;
-        } else if (_lots[id].closed) {
-            return LotState.Closed;
-        } else {
-            return LotState.Active;
-        }
+        return _lots[id].state;
     }
 
+    // @notice Returns detailed information about a specific lot.
     function getLotInfo(uint256 id) external view lotExist(id) returns (
         address token,
-        LotState state,
+        uint8 state,
         uint256 price,
         uint256 tokenId,
         address creator,
@@ -59,7 +55,7 @@ contract FixedPrice is
         Lot memory lot = _lots[id];
         return (
             address(lot.token),
-            getLotState(id),
+            uint8(lot.state),
             lot.price,
             lot.tokenId,
             lot.creator,
@@ -70,6 +66,8 @@ contract FixedPrice is
     /*/////////////////////////////////////////////
     ///////// Write functions             ////////
     ///////////////////////////////////////////*/
+
+    // @dev Internal function to add a new lot to the marketplace.
     function _addLot(
         IERC721 token,
         uint256 tokenId,
@@ -82,8 +80,7 @@ contract FixedPrice is
 
         _lots[totalLots] = Lot({
                 token: token,
-                sold: false,
-                closed: false,
+                state: LotState.Active,
                 price: price,
                 tokenId: tokenId,
                 creator: creator,
@@ -95,6 +92,7 @@ contract FixedPrice is
         totalLots++;
     }
 
+    // @notice Function to add a new lot for a single NFT.
     function addLot(
         address _token,
         uint256 tokenId,
@@ -117,13 +115,14 @@ contract FixedPrice is
         _addLot(token, tokenId, price, creator);
     }
 
+    // @notice Adds multiple lots for batch NFTs.
     function addLotBatch(
         address _token,
         uint256[] calldata tokenIds,
         uint256[] calldata prices
     ) external {
         if (tokenIds.length != prices.length) {
-            revert ArrayLengthMissmatch();
+            revert MarketplaceArrayLengthMissmatch();
         }
 
         if (!_supportsERC721Interface(_token)) {
@@ -141,6 +140,7 @@ contract FixedPrice is
         }
     }
 
+    // @notice Allows a user to buy a lot by paying the exact price.
     function buyLot(
         uint256 id
     ) external payable nonReentrant lotExist(id) {
@@ -156,7 +156,7 @@ contract FixedPrice is
         address buyer = _msgSender();
 
         Lot storage lot = _lots[id];
-        lot.sold = true;
+        lot.state = LotState.Sold;
         lot.buyer = buyer;
 
         lot.token.transferFrom(address(this), buyer, lot.tokenId);
@@ -168,6 +168,7 @@ contract FixedPrice is
         emit LotSold(id, buyer, price);
     }
 
+    // @notice Closes an active lot and returns the NFT to the creator.
     function closeLot(
         uint256 id
     ) external lotExist(id) onlyCreator(id) {
@@ -176,8 +177,8 @@ contract FixedPrice is
         }
 
         Lot storage lot = _lots[id];
-        lot.closed = true;
-
+        lot.state = LotState.Closed;
+        
         lot.token.transferFrom(address(this), lot.creator, lot.tokenId);
 
         emit LotClosed(id);

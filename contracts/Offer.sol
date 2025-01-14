@@ -2,22 +2,24 @@
 pragma solidity ^0.8.28;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {MarketplaceCommon} from "./MarketplaceCommon.sol";
+import {Marketplace} from "./common/Marketplace.sol";
 import {IOffer} from "./interfaces/IOffer.sol";
 
 contract Offer is 
-    MarketplaceCommon,
+    Marketplace,
     IOffer 
 {
     enum LotState {
         Created,        // price == 0
-        Pending,      // price != 0
+        Active,         // price != 0 && block.timestamp < lot.timeout
+        Timeout,        // price != 0 && block.timestamp >= lot.timeout
         Sold,           // sold == true
         Closed          // closed == true
     }
 
     struct Lot {
         IERC721 token;     
+        uint64 timeout;
         bool sold;
         bool closed;
         uint256 price;
@@ -26,6 +28,7 @@ contract Offer is
         address buyer;
     }
 
+    uint64 public minDuration;
     mapping (uint256 id => Lot) private _lots;
 
     modifier onlyCreator(uint256 id) {
@@ -33,11 +36,19 @@ contract Offer is
         _;
     }
 
-    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
+    constructor(
+        uint96 _fee,
+        uint64 _minDuration
+    ) Marketplace(_fee) {
+        minDuration = _minDuration;
+        emit MinDurationUpdated(0, minDuration);
+    }
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
     ///////////////////////////////////////////*/
+    
+    // @notice Returns the current state of a specified lot.
     function getLotState(uint256 id) public view returns (LotState) {
         if (_lots[id].sold) {
             return LotState.Sold;
@@ -45,14 +56,18 @@ contract Offer is
             return LotState.Closed;
         } else if (_lots[id].price == 0){
             return LotState.Created;
+        } else if (_lots[id].price != 0 && _lots[id].timeout > block.timestamp){
+            return LotState.Active;
         } else {
-            return LotState.Pending;
+            return LotState.Timeout;
         }
     }
 
+    // @notice Returns detailed information about a specific lot.
     function getLotInfo(uint256 id) external view lotExist(id) returns (
         address token,
         LotState state,
+        uint64 timeout,
         uint256 price,
         uint256 tokenId,
         address creator,
@@ -63,6 +78,7 @@ contract Offer is
         return (
             address(lot.token),
             getLotState(id),
+            lot.timeout,
             lot.price,
             lot.tokenId,
             lot.creator,
@@ -70,15 +86,26 @@ contract Offer is
         );
     }
 
-    function _addLot(
+    /*/////////////////////////////////////////////
+    ///////// Write functions             ////////
+    ///////////////////////////////////////////*/
+
+    // @dev Internal function to add a new lot to the marketplace.
+    function _addOffer(
         IERC721 token,
         uint256 tokenId,
-        address creator
+        address creator,
+        uint64 duration
     ) private {
+        if (duration < minDuration) {
+            revert MarketplaceInvalidInputData();
+        }
+
         token.transferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
                 token: token,
+                timeout: uint64(block.timestamp) + duration,                
                 sold: false,
                 closed: false,
                 price: 0,
@@ -87,17 +114,16 @@ contract Offer is
                 buyer: creator
         });
 
-        emit LotAdded(totalLots, address(token), tokenId, creator);
+        emit OfferAdded(totalLots, address(token), tokenId, _lots[totalLots].timeout, creator);
 
         totalLots++;
     }
 
-    /*/////////////////////////////////////////////
-    ///////// Write functions             ////////
-    ///////////////////////////////////////////*/
-    function addLot(
+    // @notice Function to add a new lot for a single NFT.
+    function addOffer(
         address _token,
-        uint256 tokenId
+        uint256 tokenId,
+        uint64 duration
     ) external {
         if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
@@ -109,13 +135,19 @@ contract Offer is
         }
 
         IERC721 token = IERC721(_token);
-        _addLot(token, tokenId, creator);
+        _addOffer(token, tokenId, creator, duration);
     }
 
-    function addLotBatch(
+    // @notice Creates multiple lots in a single transaction.
+    function addOfferBatch(
         address _token,
-        uint256[] calldata tokenIds
+        uint256[] calldata tokenIds,
+        uint64[] calldata durations
     ) external {
+        if (tokenIds.length != durations.length) {
+            revert MarketplaceArrayLengthMissmatch();
+        }
+
         if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
@@ -127,15 +159,20 @@ contract Offer is
 
         IERC721 token = IERC721(_token);
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            _addLot(token, tokenIds[i], creator);
+            _addOffer(token, tokenIds[i], creator, durations[i]);
         }
     }
 
-    function approveLot(
+    // @notice Approves a lot, transferring the NFT to the buyer and distributing funds.
+    function acceptOffer(
         uint256 id
     ) external payable nonReentrant lotExist(id) onlyCreator(id) {
-        if (getLotState(id) != LotState.Pending) {
-            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)));
+        LotState state = getLotState(id);
+        if (!(state == LotState.Active || state == LotState.Timeout)) {
+            revert MarketplaceUnexpectedState(
+                _encodeState(uint8(LotState.Active)) |
+                _encodeState(uint8(LotState.Timeout))
+            );
         }
 
         Lot storage lot = _lots[id];
@@ -148,29 +185,47 @@ contract Offer is
         (bool success, ) = lot.creator.call{value: price}("");
         require(success, MarketplaceTransactionFailed());
 
-        emit LotApproved(id, lot.buyer, price);
+        emit OfferAccepted(id, lot.buyer, price);
     }
 
-    function closeLot(
+     // @notice Closes a lot and returns the NFT to the creator. 
+     // Can be called by creator at any time
+     // Can be called by any account only if timeout is over
+    function closeOffer(
         uint256 id
-    ) external lotExist(id) onlyCreator(id) {
+    ) external nonReentrant lotExist(id) {
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Pending)) {
+        if (!(state == LotState.Created || state == LotState.Active || state == LotState.Timeout)) {
             revert MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) | 
-                _encodeState(uint8(LotState.Pending))
+                _encodeState(uint8(LotState.Active)) |
+                _encodeState(uint8(LotState.Timeout))
             );
         }
 
+        address closer = _msgSender();
         Lot storage lot = _lots[id];
-        lot.closed = true;
 
+        // others accounts can close lot only after timeout is over
+        if (closer != lot.creator && state != LotState.Timeout) {
+            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Timeout)));
+        }
+
+        lot.closed = true;
         lot.token.transferFrom(address(this), lot.creator, lot.tokenId);
 
-        emit LotClosed(id);
+        if (lot.price > 0) {
+            // send ETH back to buyer, no market and royalty fee hold
+            (bool success, ) = lot.buyer.call{value: lot.price}("");
+            require(success, MarketplaceTransactionFailed());
+        }
+
+        emit OfferClosed(id, closer);
     }
 
-    function offerLot(
+    // @notice Places an offer on a lot, updating the price and buyer if the offer is higher.
+    // Also sends previuos offerred value back
+    function placeOffer(
         uint256 id
     ) external payable nonReentrant lotExist(id)  {
         uint256 value = msg.value;
@@ -179,10 +234,10 @@ contract Offer is
         }
 
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Pending)) {
+        if (!(state == LotState.Created || state == LotState.Active)) {
             revert MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) |
-                _encodeState(uint8(LotState.Pending))
+                _encodeState(uint8(LotState.Active))
             );
         }
 
@@ -196,6 +251,17 @@ contract Offer is
         lot.price = value;
         lot.buyer = offerer;
 
-        emit LotOffered(id, offerer, value);
+        emit OfferPlaced(id, offerer, value);
+    }
+
+    /*/////////////////////////////////////////////
+    ///////// Update functions            ////////
+    ///////////////////////////////////////////*/
+    function updateMinDuration(uint64 newMinDuration) external onlyOwner {
+        require(newMinDuration != minDuration, MarketplaceInvalidInputData());
+        
+        emit MinDurationUpdated(minDuration, newMinDuration);
+
+        minDuration = newMinDuration;
     }
 }

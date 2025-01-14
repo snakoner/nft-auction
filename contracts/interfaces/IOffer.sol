@@ -6,26 +6,33 @@ interface IOffer {
 
     error InsufficientValue();
 
-    event LotAdded(
+    event OfferAdded(
         uint256 indexed id,
         address indexed token,
         uint256 tokenId,
+        uint64 timeout,
         address indexed creator
     );
 
-    event LotOffered(
+    event OfferPlaced(
         uint256 indexed id,
         address indexed offerer,
         uint256 price
     );
 
-    event LotApproved (
+    event OfferAccepted (
         uint256 indexed id,
         address indexed buyer,
         uint256 price
     );
 
-    event LotClosed (
-        uint256 indexed id
+    event OfferClosed (
+        uint256 indexed id,
+        address indexed closer
+    );
+
+    event MinDurationUpdated(
+        uint64 oldMinDuration,
+        uint64 newMinDuration
     );
 }

@@ -5,9 +5,13 @@ import {Auction, NFT, ERC721Token} from "../typechain-types";
 import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
+// market deployment data
+const fee = BigInt(20);  // 0.2%
+const minDuration = 60 * 60 * 24; // 1 day
+const deadlineForExtensionTime = 60; // 60 seconds
+
 const batchSize = 20;
 const tokenId = 0;
-const fee = BigInt(20);  // 0.2%
 const feeNumerator = BigInt(200); // 2%
 
 interface Bidder {
@@ -25,6 +29,8 @@ let lotInfo = {
     tokenId: tokenId,
     startPrice: ethers.parseEther("0.1"),
     duration: 60 * 60 * 24 * 2,      // 2 days
+    minBidStep: 0,
+    extensionTime: 0,
 };
 
 /* helpers */
@@ -51,7 +57,7 @@ const getLotAddedEvents = async(market: Auction) => {
 }
 
 const getLotBiddedEvents = async(market: Auction) => {
-    let events = await market.queryFilter(market.filters.LotBidded(), 0, "latest");
+    let events = await market.queryFilter(market.filters.BidPlaced(), 0, "latest");
     if (events.length == 0)
         return null;
 
@@ -68,7 +74,7 @@ const getLotBiddedEvents = async(market: Auction) => {
 }
 
 const getLotEndedEvent = async(market: Auction) => {
-    let events = await market.queryFilter(market.filters.LotEnded(), 0, "latest");
+    let events = await market.queryFilter(market.filters.AuctionCompleted(), 0, "latest");
     if (events.length == 0)
         return null;
 
@@ -90,6 +96,17 @@ const getFeeWithdrawedEvents = async(market: Auction) => {
     };
 }
 
+const getTimeoutExtendedEvent = async(market: Auction) => {
+    let events = await market.queryFilter(market.filters.TimeoutExtended(), 0, "latest");
+    if (events.length == 0)
+        return null;
+
+    return {
+        id: events[0].args?.id,
+        newTimeout: events[0].args?.newTimeout,
+    };
+}
+
 const getFeeUpdatedEvents = async(market: Auction) => {
     let events = await market.queryFilter(market.filters.FeeUpdated(), 0, "latest");
     if (events.length == 0)
@@ -106,12 +123,46 @@ const getFeeUpdatedEvents = async(market: Auction) => {
     return result;
 }
 
+const getMinDurationUpdatedEvents = async(market: Auction) => {
+    let events = await market.queryFilter(market.filters.MinDurationUpdated(), 0, "latest");
+    if (events.length == 0)
+        return null;
+
+    const result: any[] = [];
+    for (const e of events) {
+        result.push({
+            oldMinDuration: e.args?.oldMinDuration,
+            newMinDuration: e.args?.newMinDuration,    
+        });
+    }
+
+    return result;
+}
+
+const getDeadlineForExtensionTimeUpdatedEvents = async(market: Auction) => {
+    let events = await market.queryFilter(market.filters.DeadlineForExtensionTimeUpdated(), 0, "latest");
+    if (events.length == 0)
+        return null;
+
+    const result: any[] = [];
+    for (const e of events) {
+        result.push({
+            oldTime: e.args?.oldTime,
+            newTime: e.args?.newTime,    
+        });
+    }
+
+    return result;
+}
+
 const addLot = async(market: Auction) => {
     await market.addLot(
         lotInfo.token,
         lotInfo.tokenId,
         lotInfo.startPrice,
-        lotInfo.duration
+        lotInfo.minBidStep,
+        lotInfo.duration,
+        lotInfo.extensionTime
     );
 
     return lotInfo;
@@ -130,8 +181,9 @@ const init = async() => {
 
     // auction
     const marketFactory = await ethers.getContractFactory("Auction");
-    market = await marketFactory.deploy(fee);
+    market = await marketFactory.deploy(fee, minDuration, deadlineForExtensionTime);
     await market.waitForDeployment();
+
 
     // mint and approve NFT
     for (let i = 0; i < batchSize; i++) {
@@ -216,7 +268,7 @@ describe("Auction test", function() {
             if (i != 0)
                 beforeBalance = (await ethers.provider.getBalance(await bidders[i - 1].signer.getAddress()))
 
-            await market.connect(bidders[i].signer).bidLot(0, {value: bidders[i].bid});
+            await market.connect(bidders[i].signer).placeBid(0, {value: bidders[i].bid});
 
             if (i != 0) {
                 afterBalance = (await ethers.provider.getBalance(await bidders[i - 1].signer.getAddress()));
@@ -240,7 +292,7 @@ describe("Auction test", function() {
 
         await addLot(market);
         
-        await market.connect(bidder.signer).bidLot(0, {value: bidder.bid});
+        await market.connect(bidder.signer).placeBid(0, {value: bidder.bid});
 
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
@@ -249,7 +301,7 @@ describe("Auction test", function() {
         expect(await ethers.provider.getBalance(await market.getAddress())).to.be.eq(bidder.bid);
 
         const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
-        const tx = await market.endLot(0);
+        const tx = await market.completeAuction(0);
         const receipt = await tx.wait();
 
         const feeValue = bidder.bid * fee / BigInt(10000);
@@ -292,7 +344,7 @@ describe("Auction test", function() {
         expect(await ethers.provider.getBalance(await market.getAddress())).to.be.eq(0);
 
         const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
-        const tx = await market.endLot(0);
+        const tx = await market.completeAuction(0);
         const receipt = await tx.wait();
 
         /* checks */
@@ -316,7 +368,7 @@ describe("Auction test", function() {
     it ("Should not be possible to end auction if AuctionState is active", async function() {
         await addLot(market);
         
-        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
+        await expect(market.completeAuction(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should not be possible to end auction if AuctionState is Ended", async function() {
@@ -325,9 +377,9 @@ describe("Auction test", function() {
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
         await ethers.provider.send('evm_mine');
-        await market.endLot(0);
+        await market.completeAuction(0);
 
-        await expect(market.endLot(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
+        await expect(market.completeAuction(0)).to.be.revertedWithCustomError(market, "MarketplaceUnexpectedState");
     });
 
     it ("Should be possible to withdraw fee", async function() {
@@ -335,12 +387,12 @@ describe("Auction test", function() {
 
         await addLot(market);
         
-        await market.connect(bidder.signer).bidLot(0, {value: bidder.bid});
+        await market.connect(bidder.signer).placeBid(0, {value: bidder.bid});
 
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
         await ethers.provider.send('evm_mine');
-        await market.endLot(0);
+        await market.completeAuction(0);
 
         const ownerBalanceBefore = await ethers.provider.getBalance(await owner.getAddress());
 
@@ -378,14 +430,18 @@ describe("Auction test", function() {
         const tokenIds: bigint[] = [];
         const prices: bigint[] = [];
         const durations: bigint[] = [];
+        const extensionTimes: bigint[] = [];
+        const minBidSteps: bigint[] = [];
 
         for (let i = 0; i < batchSize; i++) {
             tokenIds.push(BigInt(i));
             prices.push(ethers.parseEther("0.1"));
             durations.push(BigInt(60 * 60 * 24 * 2));
+            extensionTimes.push(BigInt(0));
+            minBidSteps.push(BigInt(0));
         }
 
-        await market.addLotBatch(await nft.getAddress(), tokenIds, prices, durations);
+        await market.addLotBatch(await nft.getAddress(), tokenIds, prices, minBidSteps, durations, extensionTimes);
         const events = await getLotAddedEvents(market);
         expect(events.length).to.be.eq(batchSize);
 
@@ -402,15 +458,15 @@ describe("Auction test", function() {
 
     it ("Should be withhold the commission for ERC2981", async function() {
         const bidder = bidders[0];
-        await market.addLot(await nftERC2981.getAddress(), 0, lotInfo.startPrice, lotInfo.duration);
+        await market.addLot(await nftERC2981.getAddress(), 0, lotInfo.startPrice, 0, lotInfo.duration, 0);
         
-        await market.connect(bidder.signer).bidLot(0, {value: bidder.bid});
+        await market.connect(bidder.signer).placeBid(0, {value: bidder.bid});
   
         // future is here
         await ethers.provider.send('evm_increaseTime', [lotInfo.duration + 100]);
         await ethers.provider.send('evm_mine');
 
-        await market.endLot(0);
+        await market.completeAuction(0);
 
         const event = await getLotEndedEvent(market);
 
@@ -421,4 +477,71 @@ describe("Auction test", function() {
         expect(realPrice).to.be.eq(calculatedPrice);
     });
 
+    it ("Should be negotiate with minBidStep", async function() {
+        const bidder = bidders[0];
+        const minBidStep = ethers.parseEther("0.01");
+        const goodBidValue = lotInfo.startPrice + ethers.parseEther("0.02");
+        const badBidValue = lotInfo.startPrice + ethers.parseEther("0.005");
+
+        await market.addLot(await nftERC2981.getAddress(), 0, lotInfo.startPrice, minBidStep, lotInfo.duration, 0);
+        
+        // bad bid
+        await expect(
+            market.connect(bidder.signer).placeBid(0, {value: badBidValue})
+        ).to.be.revertedWithCustomError(market, "InsufficientBidValue");
+        
+        // good bid
+        market.connect(bidder.signer).placeBid(0, {value: goodBidValue});
+    });
+
+    it ("Should be negotiate with extensionTime", async function() {
+        const bidder = bidders[0];
+        const extensionTime = BigInt(60 * 60); // 1 hour
+
+        await market.addLot(await nftERC2981.getAddress(), 0, lotInfo.startPrice, 0, lotInfo.duration, extensionTime);
+
+        await ethers.provider.send('evm_increaseTime', [lotInfo.duration - 50]);
+        await ethers.provider.send('evm_mine');
+
+        const timeoutBefore = (await market.getLotInfo(0)).timeout;
+
+        // time extended
+        await market.connect(bidder.signer).placeBid(0, {value: bidder.bid});
+        expect((await market.getLotInfo(0)).timeout - timeoutBefore).to.be.closeTo(extensionTime, 10);   // 10 seconds error rate
+
+        const event = await getTimeoutExtendedEvent(market);
+        expect(event?.id).to.be.eq(0);
+        expect(event?.newTimeout).to.be.closeTo(timeoutBefore + extensionTime, 10);
+    });
+
+    it ("Should be possible to update minDuration and deadlineForExtensionTime", async function() {
+        const prevMinDuration = await market.minDuration();
+        const prevDeadlineForExtensionTime = await market.deadlineForExtensionTime();
+        const newMinDuration = 60 * 60 * 24 * 2;
+        const newDeadlineForExtensionTime = 60 * 2;
+
+        expect(prevMinDuration).to.be.eq(minDuration);
+        expect(prevDeadlineForExtensionTime).to.be.eq(deadlineForExtensionTime);
+        
+        await market.updateMinDuration(newMinDuration);
+        expect(await market.minDuration()).to.be.eq(newMinDuration);
+
+        const events0 = await getMinDurationUpdatedEvents(market);
+        expect(events0?.length).to.be.eq(2);
+        expect(events0[0]?.oldMinDuration).to.be.eq(0);
+        expect(events0[0]?.newMinDuration).to.be.eq(prevMinDuration);
+        expect(events0[1]?.oldMinDuration).to.be.eq(prevMinDuration);
+        expect(events0[1]?.newMinDuration).to.be.eq(newMinDuration);
+
+
+        await market.updateDeadlineForExtensionTime(newDeadlineForExtensionTime);
+        expect(await market.deadlineForExtensionTime()).to.be.eq(newDeadlineForExtensionTime);
+
+        const events1 = await getDeadlineForExtensionTimeUpdatedEvents(market);
+        expect(events0?.length).to.be.eq(2);
+        expect(events1[0]?.oldTime).to.be.eq(0);
+        expect(events1[0]?.newTime).to.be.eq(prevDeadlineForExtensionTime);
+        expect(events1[1]?.oldTime).to.be.eq(prevDeadlineForExtensionTime);
+        expect(events1[1]?.newTime).to.be.eq(newDeadlineForExtensionTime);
+    });
 })

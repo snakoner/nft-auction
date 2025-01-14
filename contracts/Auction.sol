@@ -2,33 +2,48 @@
 pragma solidity ^0.8.28;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import {MarketplaceCommon} from "./MarketplaceCommon.sol";
+import {Marketplace} from "./common/Marketplace.sol";
 import {IAuction} from "./interfaces/IAuction.sol";
 
 contract Auction is 
-    MarketplaceCommon,
+    Marketplace,
     IAuction
 {
     enum LotState {
         Active,     // timeout < block.timestamp
-        Pending,    // timeout >= block.timestamp
+        Pending,    // timeout >= block.timestamp, wait for completeAuction
         Ended       // withdrawed == true
     }
 
     struct Lot {
-        IERC721 token;       // slot 0
-        uint64 timeout;     // slot 0
-        bool withdrawed;    // slot 0
+        IERC721 token;      // slot 0: 160
+        uint64 timeout;     // slot 0: 64
+        bool withdrawed;    // slot 0: 8
+        uint256 minBidStep;
         uint256 startPrice;
         uint256 lastPrice;
         uint256 tokenId;
         address winner;
         address creator;
+        uint64 extensionTime;       // if bid was done before auction timeout time -> extend timeout
     }
 
+    // @notice uint96 fee (from Marketplace contract)
+    uint64 public minDuration;
+    uint64 public deadlineForExtensionTime;
     mapping (uint256 id => Lot) private _lots;
 
-    constructor(uint24 _fee) MarketplaceCommon(_fee) {}
+    constructor(
+        uint96 _fee,
+        uint64 _minDuration,
+        uint64 _deadlineForExtensionTime
+    ) Marketplace(_fee) {
+        minDuration = _minDuration;
+        deadlineForExtensionTime = _deadlineForExtensionTime;
+
+        emit MinDurationUpdated(0, minDuration);
+        emit DeadlineForExtensionTimeUpdated(0, deadlineForExtensionTime);
+    }
 
     modifier notCreator(uint256 id) {
         require(_lots[id].creator != _msgSender(), CreatorBidForbidden());
@@ -38,6 +53,8 @@ contract Auction is
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
     ///////////////////////////////////////////*/
+
+    // @notice Returns the current state of a specified lot.
     function getLotState(uint256 id) public view returns (LotState) {
         if (_lots[id].timeout > uint64(block.timestamp)) {
             return LotState.Active;
@@ -48,6 +65,7 @@ contract Auction is
         }
     }
 
+    // @notice Returns detailed information about a specific lot.
     function getLotInfo(uint256 id) external view lotExist(id) returns (
         address token,
         uint64 timeout,
@@ -71,21 +89,29 @@ contract Auction is
         );
     }
 
-    function _minDuration() internal virtual pure returns (uint64) {
-        return uint64(1 days);
+    function _timeLeft(uint256 id) private view returns (uint64) {
+        if (_lots[id].timeout > block.timestamp) {
+            return _lots[id].timeout - uint64(block.timestamp);
+        }
+
+        return 0;
     }
 
     /*/////////////////////////////////////////////
     ///////// Write functions            /////////
     ///////////////////////////////////////////*/
+
+    // @dev Internal function to add a new lot to the marketplace.
     function _addLot(
         IERC721 token,
         uint256 tokenId,
         uint256 startPrice,
+        uint256 minBidStep,
         uint64 duration,
+        uint64 extensionTime,
         address creator
     ) private {
-        if (duration < _minDuration() || startPrice == 0) {
+        if (duration < minDuration || startPrice == 0) {
             revert MarketplaceInvalidInputData();
         }
 
@@ -96,23 +122,36 @@ contract Auction is
                 timeout: uint64(block.timestamp) + duration,                
                 withdrawed: false,
                 startPrice: startPrice,
-                // bidsNumber: 0,
+                minBidStep: minBidStep,
                 lastPrice: startPrice,
                 tokenId: tokenId,
                 winner: creator,
-                creator: creator
+                creator: creator,
+                extensionTime: extensionTime
         });
 
-        emit LotAdded(totalLots, address(token), tokenId, startPrice, _lots[totalLots].timeout, creator);
+        emit LotAdded(
+            totalLots,
+            address(token),
+            tokenId,
+            startPrice,
+            minBidStep,
+            _lots[totalLots].timeout,
+            extensionTime,
+            creator
+        );
 
         totalLots++;
     }
 
+    // @notice Function to add a new lot for a single NFT.
     function addLot(
         address _token,
         uint256 tokenId,
         uint256 startPrice,
-        uint64 duration
+        uint256 minBidStep,
+        uint64 duration,
+        uint64 extensionTime
     ) external {
         if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
@@ -124,17 +163,28 @@ contract Auction is
         }
 
         IERC721 token = IERC721(_token);
-        _addLot(token, tokenId, startPrice, duration, creator);
+        _addLot(
+            token, 
+            tokenId, 
+            startPrice, 
+            minBidStep, 
+            duration, 
+            extensionTime, 
+            creator
+        );
     }
 
+    // @notice Creates multiple lots in a single transaction.
     function addLotBatch(
         address _token,
-        uint256[] calldata tokenIds,
+        uint256[] memory tokenIds,
         uint256[] calldata startPrices,
-        uint64[] calldata durations
-    ) external {
+        uint256[] calldata minBidSteps,
+        uint64[] calldata durations,
+        uint64[] calldata extensionTimes
+    ) public {
         if (tokenIds.length != startPrices.length || tokenIds.length != durations.length) {
-            revert ArrayLengthMissmatch();
+            revert MarketplaceArrayLengthMissmatch();
         }
 
         if (!_supportsERC721Interface(_token)) {
@@ -148,11 +198,20 @@ contract Auction is
 
         IERC721 token = IERC721(_token);
         for (uint256 i = 0; i < tokenIds.length; i++) {
-            _addLot(token, tokenIds[i], startPrices[i], durations[i], creator);
+            _addLot(
+                token, 
+                tokenIds[i], 
+                startPrices[i], 
+                minBidSteps[i], 
+                durations[i], 
+                extensionTimes[i], 
+                creator
+            );
         }
     }
 
-    function bidLot(uint256 id) external payable 
+    // @notice Places a bid on an active auction lot.
+    function placeBid(uint256 id) external payable 
         nonReentrant 
         lotExist(id)
         notCreator(id)
@@ -162,7 +221,7 @@ contract Auction is
         }
 
         uint256 newBid = msg.value;
-        if (newBid < _lots[id].lastPrice) 
+        if (newBid < _lots[id].lastPrice + _lots[id].minBidStep)
             revert InsufficientBidValue();
 
         address bidder = _msgSender();
@@ -177,11 +236,18 @@ contract Auction is
         _lots[id].lastPrice = newBid;
         _lots[id].winner = bidder;
 
-        emit LotBidded(id, bidder, newBid);
+        // snipper's bid defence
+        if (_lots[id].extensionTime > 0 && _timeLeft(id) < deadlineForExtensionTime) {
+                _lots[id].timeout += _lots[id].extensionTime;
+                emit TimeoutExtended(id, _lots[id].timeout);
+        }
+
+        emit BidPlaced(id, bidder, newBid);
     }
 
-    // this function can be call by anyone
-    function endLot(uint256 id) external nonReentrant lotExist(id) {
+    // @notice Completes an auction lot, transferring the NFT to the winner
+    // (or back to the creator if no bidders) and distributing funds.
+    function completeAuction(uint256 id) external nonReentrant lotExist(id) {
         if (getLotState(id) != LotState.Pending) {
             revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)));
         }
@@ -193,13 +259,32 @@ contract Auction is
         lot.token.transferFrom(address(this), lot.winner, lot.tokenId);
 
         // if have winner send ETH to creator
-        if (_lots[id].startPrice != _lots[id].lastPrice) {
+        if (lot.startPrice != lot.lastPrice) {
             price = _calculatePriceWithFeeAndUpdate(address(lot.token), lot.tokenId, lot.lastPrice);
 
             (bool success, ) = lot.creator.call{value: price}("");
             require(success, MarketplaceTransactionFailed());
         }
 
-        emit LotEnded(id, lot.winner, price);
+        emit AuctionCompleted(id, lot.winner, price);
+    }
+
+    /*/////////////////////////////////////////////
+    ///////// Update functions            ////////
+    ///////////////////////////////////////////*/
+    function updateMinDuration(uint64 newMinDuration) external onlyOwner {
+        require(newMinDuration != minDuration, MarketplaceInvalidInputData());
+        
+        emit MinDurationUpdated(minDuration, newMinDuration);
+
+        minDuration = newMinDuration;
+    }
+
+    function updateDeadlineForExtensionTime(uint64 newTime) external onlyOwner {
+        require(newTime != deadlineForExtensionTime, MarketplaceInvalidInputData());
+        
+        emit DeadlineForExtensionTimeUpdated(deadlineForExtensionTime, newTime);
+
+        deadlineForExtensionTime = newTime;
     }
 }
