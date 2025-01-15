@@ -118,7 +118,10 @@ abstract contract Marketplace is
     ) internal returns (uint256) {
         (address receiver, uint256 royaltyFee) = royaltyInfo(token, tokenId, salePrice);
         if (royaltyFee != 0) {
-            salePrice -= royaltyFee;
+            unchecked {
+                salePrice -= royaltyFee;
+            }
+
             (bool success, ) = receiver.call{value: royaltyFee}("");
             require(success, MarketplaceTransactionFailed());
         }
