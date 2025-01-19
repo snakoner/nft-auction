@@ -34,20 +34,16 @@ contract Auction is
     mapping (uint256 id => Lot) private _lots;
 
     constructor(
-        string memory name,
         uint96 _fee,
         uint64 _minDuration,
         uint64 _deadlineForExtensionTime
-    ) Marketplace(name, _fee) {
-        minDuration = _minDuration;
-        deadlineForExtensionTime = _deadlineForExtensionTime;
-
-        emit MinDurationUpdated(0, minDuration);
-        emit DeadlineForExtensionTimeUpdated(0, deadlineForExtensionTime);
+    ) Marketplace(_fee) {
+        updateMinDuration(_minDuration);
+        updateDeadlineForExtensionTime(_deadlineForExtensionTime);
     }
 
     modifier notCreator(uint256 id) {
-        require(_lots[id].creator != _msgSender(), CreatorBidForbidden());
+        require(_lots[id].creator != _msgSender(), NotCreatorAllowedOnly());
         _;
     }
 
@@ -153,7 +149,7 @@ contract Auction is
         uint256 minBidStep,
         uint64 duration,
         uint64 extensionTime
-    ) external {
+    ) external isInWhitelist(_token) {
         if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
@@ -178,12 +174,12 @@ contract Auction is
     // @notice Creates multiple lots in a single transaction.
     function addLotBatch(
         address _token,
-        uint256[] memory tokenIds,
+        uint256[] calldata tokenIds,
         uint256[] calldata startPrices,
         uint256[] calldata minBidSteps,
         uint64[] calldata durations,
         uint64[] calldata extensionTimes
-    ) public {
+    ) external isInWhitelist(_token) {
         if (tokenIds.length != startPrices.length || tokenIds.length != durations.length) {
             revert MarketplaceArrayLengthMissmatch();
         }
@@ -273,7 +269,7 @@ contract Auction is
     /*/////////////////////////////////////////////
     ///////// Update functions            ////////
     ///////////////////////////////////////////*/
-    function updateMinDuration(uint64 newMinDuration) external onlyOwner {
+    function updateMinDuration(uint64 newMinDuration) public onlyOwner {
         require(newMinDuration != minDuration, MarketplaceInvalidInputData());
         
         emit MinDurationUpdated(minDuration, newMinDuration);
@@ -281,7 +277,7 @@ contract Auction is
         minDuration = newMinDuration;
     }
 
-    function updateDeadlineForExtensionTime(uint64 newTime) external onlyOwner {
+    function updateDeadlineForExtensionTime(uint64 newTime) public onlyOwner {
         require(newTime != deadlineForExtensionTime, MarketplaceInvalidInputData());
         
         emit DeadlineForExtensionTimeUpdated(deadlineForExtensionTime, newTime);

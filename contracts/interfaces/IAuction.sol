@@ -6,7 +6,7 @@ interface IAuction {
 
     error InsufficientBidValue();
 
-    error CreatorBidForbidden();
+    error NotCreatorAllowedOnly();
 
     event LotAdded(
         uint256 indexed id,

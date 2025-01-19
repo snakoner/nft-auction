@@ -5,11 +5,10 @@ import {Auction} from "../Auction.sol";
 
 contract TestAuction is Auction {
     constructor(
-        string memory name,
         uint96 _fee,
         uint64 _minDuration,
         uint64 _deadlineForExtensionTime
-    ) Auction(name, _fee, _minDuration, _deadlineForExtensionTime) {}
+    ) Auction(_fee, _minDuration, _deadlineForExtensionTime) {}
 
     function _feeDenominator() internal pure override returns (uint96) {
         return 1000;

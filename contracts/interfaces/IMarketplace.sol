@@ -24,6 +24,8 @@ interface IMarketplace {
 
     error MarketplaceArrayLengthMissmatch();
 
+    error MarketplaceNotInWhitelist();
+
     event TokenReceived(
         address indexed operator,
         address indexed from,

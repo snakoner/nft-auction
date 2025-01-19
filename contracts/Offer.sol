@@ -37,10 +37,9 @@ contract Offer is
     }
 
     constructor(
-        string memory name,
         uint96 _fee,
         uint64 _minDuration
-    ) Marketplace(name, _fee) {
+    ) Marketplace(_fee) {
         minDuration = _minDuration;
         emit MinDurationUpdated(0, minDuration);
     }
@@ -125,7 +124,7 @@ contract Offer is
         address _token,
         uint256 tokenId,
         uint64 duration
-    ) external {
+    ) external isInWhitelist(_token) {
         if (!_supportsERC721Interface(_token)) {
             revert MarketplaceNoIERC721Support();
         }
@@ -144,7 +143,7 @@ contract Offer is
         address _token,
         uint256[] calldata tokenIds,
         uint64[] calldata durations
-    ) external {
+    ) external isInWhitelist(_token) {
         if (tokenIds.length != durations.length) {
             revert MarketplaceArrayLengthMissmatch();
         }

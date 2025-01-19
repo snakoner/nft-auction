@@ -32,9 +32,8 @@ contract FixedPrice is
     }
 
     constructor(
-        string memory name,
         uint96 _fee
-    ) Marketplace(name, _fee) {}
+    ) Marketplace(_fee) {}
 
     /*/////////////////////////////////////////////
     ///////// Read functions             /////////
@@ -100,7 +99,7 @@ contract FixedPrice is
         address _token,
         uint256 tokenId,
         uint256 price
-    ) external {
+    ) external isInWhitelist(_token) {
         if (price == 0) {
             revert MarketplaceInvalidInputData();
         }
@@ -123,7 +122,7 @@ contract FixedPrice is
         address _token,
         uint256[] calldata tokenIds,
         uint256[] calldata prices
-    ) external {
+    ) external isInWhitelist(_token) {
         if (tokenIds.length != prices.length) {
             revert MarketplaceArrayLengthMissmatch();
         }

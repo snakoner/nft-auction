@@ -15,21 +15,24 @@ abstract contract Marketplace is
     IERC721Receiver, 
     IMarketplace
 {
-    string public name;
     uint256 public totalLots;
     uint256 internal _feeCollected;
+    mapping (address => bool) public whitelist;
     uint96 public fee;	// [0..._feeDenominator()]
 
-    constructor(string memory _name, uint96 _fee) Ownable(msg.sender) {
+    constructor(uint96 _fee) Ownable(msg.sender) {
         require(_fee <= _feeDenominator(), MarketplaceInvalidInputData());
-        name = _name;
-        fee = _fee;
 
-        emit FeeUpdated(0, _fee);
+        updateFee(_fee);
     }
 
     modifier lotExist(uint256 id) {
         require(totalLots > id, MarketplaceLotNotExist());
+        _;
+    }
+
+    modifier isInWhitelist(address token) {
+        require(whitelist[token], MarketplaceNotInWhitelist());
         _;
     }
 
@@ -118,16 +121,14 @@ abstract contract Marketplace is
     ) internal returns (uint256) {
         (address receiver, uint256 royaltyFee) = royaltyInfo(token, tokenId, salePrice);
         if (royaltyFee != 0) {
-            unchecked {
-                salePrice -= royaltyFee;
-            }
+            salePrice -= royaltyFee;
 
             (bool success, ) = receiver.call{value: royaltyFee}("");
             require(success, MarketplaceTransactionFailed());
         }
 
         // update marketplace fee value
-        uint256 feeValue = salePrice * fee / 10000;
+        uint256 feeValue = salePrice * fee / _feeDenominator();
         _feeCollected += feeValue;
 
         return salePrice - feeValue;
@@ -145,8 +146,12 @@ abstract contract Marketplace is
         return _feeCollected;
     }
 
-    function updateFee(uint96 newFee) external onlyOwner {
-        require(fee != newFee, MarketplaceFeeUpdateFailed());
+    function updateFee(uint96 newFee) public onlyOwner {
+        require(
+            newFee != 0 && 
+            fee != newFee && 
+            newFee <= _feeDenominator(), 
+            MarketplaceFeeUpdateFailed());
 
         emit FeeUpdated(fee, newFee);
 
@@ -162,5 +167,9 @@ abstract contract Marketplace is
         _feeCollected = 0;	// use no reentrant 
 
         require(success, MarketplaceTransactionFailed());
+    }
+
+    function setWhitelist(address token, bool allowed) public onlyOwner {
+        whitelist[token] = allowed;
     }
 }

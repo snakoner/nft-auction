@@ -6,7 +6,6 @@ import "@nomicfoundation/hardhat-chai-matchers";
 import { getTransactionFee } from "./common";
 
 // market deployment data
-const name = "Fixed Price Marketplace ERC721";
 const fee = BigInt(20);  // 0.2%
 
 const batchSize = 20;
@@ -77,6 +76,11 @@ const addLot = async(market: FixedPrice, nft: NFT) => {
     return lotInfo;
 }
 
+const setWhitelist = async(market: FixedPrice, nft: any) => {
+    await market.setWhitelist(await nft.getAddress(), true);
+}
+
+
 const init = async() => {
     owner = (await ethers.getSigners())[0];
     buyer = (await ethers.getSigners())[1];
@@ -90,7 +94,7 @@ const init = async() => {
 
     // auction
     const marketFactory = await ethers.getContractFactory("FixedPrice");
-    market = await marketFactory.deploy(name, fee);
+    market = await marketFactory.deploy(fee);
     await market.waitForDeployment();
 
     // mint and approve NFT
@@ -111,6 +115,9 @@ const init = async() => {
     await nftERC2981.waitForDeployment();
     await nftERC2981.mint(await owner.getAddress(), feeNumerator);
     await nftERC2981.approve(await market.getAddress(), 0);
+
+    await setWhitelist(market, nft);
+    await setWhitelist(market, nftERC2981);
 
     expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
     await nft.approve(await market.getAddress(), tokenId);

@@ -169,6 +169,10 @@ const addLot = async(market: Auction) => {
     return lotInfo;
 }
 
+const setWhitelist = async(market: Auction, nft: any) => {
+    await market.setWhitelist(await nft.getAddress(), true);
+}
+
 const init = async() => {
     owner = (await ethers.getSigners())[0];
     const accounts = (await ethers.getSigners()).slice(1,);
@@ -182,7 +186,7 @@ const init = async() => {
 
     // auction
     const marketFactory = await ethers.getContractFactory("Auction");
-    market = await marketFactory.deploy(name, fee, minDuration, deadlineForExtensionTime);
+    market = await marketFactory.deploy(fee, minDuration, deadlineForExtensionTime);
     await market.waitForDeployment();
 
 
@@ -209,6 +213,10 @@ const init = async() => {
     expect(await nft.ownerOf(tokenId)).to.be.eq(await owner.getAddress());
     await nft.approve(await market.getAddress(), tokenId);
     expect(await nft.getApproved(tokenId)).to.be.eq(await market.getAddress());
+
+    // set whitelist
+    setWhitelist(market, nft);
+    setWhitelist(market, nftERC2981);
 
     // create bidders
     bidders.length = 0;
