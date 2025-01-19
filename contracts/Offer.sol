@@ -40,8 +40,7 @@ contract Offer is
         uint96 _fee,
         uint64 _minDuration
     ) Marketplace(_fee) {
-        minDuration = _minDuration;
-        emit MinDurationUpdated(0, minDuration);
+        updateMinDuration(_minDuration);
     }
 
     /*/////////////////////////////////////////////
@@ -257,7 +256,7 @@ contract Offer is
     /*/////////////////////////////////////////////
     ///////// Update functions            ////////
     ///////////////////////////////////////////*/
-    function updateMinDuration(uint64 newMinDuration) external onlyOwner {
+    function updateMinDuration(uint64 newMinDuration) public onlyOwner {
         require(newMinDuration != minDuration, MarketplaceInvalidInputData());
         
         emit MinDurationUpdated(minDuration, newMinDuration);
