@@ -86,8 +86,8 @@ const getLotEndedEvent = async(market: Auction) => {
     };
 }
 
-const getFeeWithdrawedEvents = async(market: Auction) => {
-    let events = await market.queryFilter(market.filters.FeeWithdrawed(), 0, "latest");
+const getFeeWithdrawnEvents = async(market: Auction) => {
+    let events = await market.queryFilter(market.filters.FeeWithdrawn(), 0, "latest");
     if (events.length == 0)
         return null;
 
@@ -414,7 +414,7 @@ describe("Auction test", function() {
         const ownerBalanceAfter = await ethers.provider.getBalance(await owner.getAddress());
         expect(ownerBalanceAfter - ownerBalanceBefore).to.be.eq(feeValue - transactionFee);
         
-        const event = await getFeeWithdrawedEvents(market);
+        const event = await getFeeWithdrawnEvents(market);
 
         expect(event?.to).to.be.eq(await owner.getAddress());
         expect(event?.amount).to.be.eq(feeValue);

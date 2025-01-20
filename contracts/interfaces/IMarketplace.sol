@@ -38,8 +38,13 @@ interface IMarketplace {
         uint96 newFee
     );
 
-    event FeeWithdrawed(
+    event FeeWithdrawn(
         address indexed to,
         uint256 amount
+    );
+
+    event TokenWhitelistStateChanged(
+        address indexed token,
+        bool state
     );
 }

@@ -12,13 +12,13 @@ contract Auction is
     enum LotState {
         Active,     // timeout < block.timestamp
         Pending,    // timeout >= block.timestamp, wait for completeAuction
-        Ended       // withdrawed == true
+        Ended       // withdrawn == true
     }
 
     struct Lot {
-        IERC721 token;      // slot 0: 160
-        uint64 timeout;     // slot 0: 64
-        bool withdrawed;    // slot 0: 8
+        IERC721 token;      
+        uint64 timeout;    
+        bool withdrawn;   
         uint256 minBidStep;
         uint256 startPrice;
         uint256 lastPrice;
@@ -33,6 +33,11 @@ contract Auction is
     uint64 public deadlineForExtensionTime;
     mapping (uint256 id => Lot) private _lots;
 
+    modifier notCreator(uint256 id) {
+        require(_lots[id].creator != _msgSender(), NotCreatorAllowedOnly());
+        _;
+    }
+
     constructor(
         uint96 _fee,
         uint64 _minDuration,
@@ -40,11 +45,6 @@ contract Auction is
     ) Marketplace(_fee) {
         updateMinDuration(_minDuration);
         updateDeadlineForExtensionTime(_deadlineForExtensionTime);
-    }
-
-    modifier notCreator(uint256 id) {
-        require(_lots[id].creator != _msgSender(), NotCreatorAllowedOnly());
-        _;
     }
 
     /*/////////////////////////////////////////////
@@ -55,7 +55,7 @@ contract Auction is
     function getLotState(uint256 id) public view returns (LotState) {
         if (_lots[id].timeout > uint64(block.timestamp)) {
             return LotState.Active;
-        } else if (_lots[id].withdrawed) {
+        } else if (_lots[id].withdrawn) {
             return LotState.Ended;
         } else {
             return LotState.Pending;
@@ -73,7 +73,7 @@ contract Auction is
         address winner,
         address creator
     ) {
-        Lot memory lot = _lots[id];
+        Lot storage lot = _lots[id];
         return (
             address(lot.token),
             lot.timeout,
@@ -87,9 +87,7 @@ contract Auction is
     }
 
     function _timeLeft(uint256 id) private view returns (uint64) {
-        if (_lots[id].timeout > block.timestamp) {
-            return _lots[id].timeout - uint64(block.timestamp);
-        }
+        if (_lots[id].timeout > block.timestamp) return _lots[id].timeout - uint64(block.timestamp);
 
         return 0;
     }
@@ -107,17 +105,18 @@ contract Auction is
         uint64 duration,
         uint64 extensionTime,
         address creator
-    ) private {
-        if (duration < minDuration || startPrice == 0) {
-            revert MarketplaceInvalidInputData();
-        }
+    ) internal {
+        require(
+            duration >= minDuration && startPrice != 0, 
+            MarketplaceInvalidInputData()
+        );
 
-        token.transferFrom(creator, address(this), tokenId);
+        token.safeTransferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
                 token: token,
                 timeout: uint64(block.timestamp) + duration,                
-                withdrawed: false,
+                withdrawn: false,
                 startPrice: startPrice,
                 minBidStep: minBidStep,
                 lastPrice: startPrice,
@@ -150,14 +149,16 @@ contract Auction is
         uint64 duration,
         uint64 extensionTime
     ) external isInWhitelist(_token) {
-        if (!_supportsERC721Interface(_token)) {
-            revert MarketplaceNoIERC721Support();
-        }
+        require(
+            _supportsERC721Interface(_token), 
+            MarketplaceNoIERC721Support()
+        );
 
         address creator = _msgSender();
-        if (!_supportsERC721ReceiverInterface(creator)) {
-            revert MarketplaceNoIERC721ReceiverSupport();
-        }
+        require(
+            _supportsERC721ReceiverInterface(creator), 
+            MarketplaceNoIERC721ReceiverSupport()
+        );
 
         IERC721 token = IERC721(_token);
         _addLot(
@@ -180,18 +181,21 @@ contract Auction is
         uint64[] calldata durations,
         uint64[] calldata extensionTimes
     ) external isInWhitelist(_token) {
-        if (tokenIds.length != startPrices.length || tokenIds.length != durations.length) {
-            revert MarketplaceArrayLengthMissmatch();
-        }
+        require(
+            tokenIds.length == startPrices.length && tokenIds.length == durations.length,
+            MarketplaceArrayLengthMissmatch()
+        );
 
-        if (!_supportsERC721Interface(_token)) {
-            revert MarketplaceNoIERC721Support();
-        }
+        require(
+            _supportsERC721Interface(_token), 
+            MarketplaceNoIERC721Support()
+        );
 
         address creator = _msgSender();
-        if (!_supportsERC721ReceiverInterface(creator)) {
-            revert MarketplaceNoIERC721ReceiverSupport();
-        }
+        require(
+            _supportsERC721ReceiverInterface(creator), 
+            MarketplaceNoIERC721ReceiverSupport()
+        );
 
         IERC721 token = IERC721(_token);
         for (uint256 i = 0; i < tokenIds.length; i++) {
@@ -213,13 +217,16 @@ contract Auction is
         lotExist(id)
         notCreator(id)
     {
-        if (getLotState(id) != LotState.Active) {
-            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)));
-        }
+        require(
+            getLotState(id) == LotState.Active, 
+            MarketplaceUnexpectedState(_encodeState(uint8(LotState.Active)))
+        );
 
         uint256 newBid = msg.value;
-        if (newBid < _lots[id].lastPrice + _lots[id].minBidStep)
-            revert InsufficientBidValue();
+        require(
+            newBid >= _lots[id].lastPrice + _lots[id].minBidStep,
+            InsufficientBidValue()
+        );
 
         address bidder = _msgSender();
         address oldBidder = _lots[id].winner;
@@ -245,15 +252,16 @@ contract Auction is
     // @notice Completes an auction lot, transferring the NFT to the winner
     // (or back to the creator if no bidders) and distributing funds.
     function completeAuction(uint256 id) external nonReentrant lotExist(id) {
-        if (getLotState(id) != LotState.Pending) {
-            revert MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)));
-        }
+        require(
+            getLotState(id) == LotState.Pending, 
+            MarketplaceUnexpectedState(_encodeState(uint8(LotState.Pending)))
+        );
 
         uint256 price = 0;
         Lot storage lot = _lots[id];
-        lot.withdrawed = true;
+        lot.withdrawn = true;
 
-        lot.token.transferFrom(address(this), lot.winner, lot.tokenId);
+        lot.token.safeTransferFrom(address(this), lot.winner, lot.tokenId);
 
         // if have winner send ETH to creator
         if (lot.startPrice != lot.lastPrice) {

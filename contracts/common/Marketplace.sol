@@ -20,12 +20,6 @@ abstract contract Marketplace is
     mapping (address => bool) public whitelist;
     uint96 public fee;	// [0..._feeDenominator()]
 
-    constructor(uint96 _fee) Ownable(msg.sender) {
-        require(_fee <= _feeDenominator(), MarketplaceInvalidInputData());
-
-        updateFee(_fee);
-    }
-
     modifier lotExist(uint256 id) {
         require(totalLots > id, MarketplaceLotNotExist());
         _;
@@ -34,6 +28,10 @@ abstract contract Marketplace is
     modifier isInWhitelist(address token) {
         require(whitelist[token], MarketplaceNotInWhitelist());
         _;
+    }
+
+    constructor(uint96 _fee) Ownable(msg.sender) {
+        updateFee(_fee);
     }
 
     /*/////////////////////////////////////////////
@@ -131,6 +129,7 @@ abstract contract Marketplace is
         uint256 feeValue = salePrice * fee / _feeDenominator();
         _feeCollected += feeValue;
 
+        
         return salePrice - feeValue;
     }
 
@@ -150,7 +149,7 @@ abstract contract Marketplace is
         require(
             newFee != 0 && 
             fee != newFee && 
-            newFee <= _feeDenominator(), 
+            newFee <= _feeDenominator(),
             MarketplaceFeeUpdateFailed());
 
         emit FeeUpdated(fee, newFee);
@@ -161,15 +160,18 @@ abstract contract Marketplace is
     function withdrawFee(address to) external nonReentrant onlyOwner {
         require(_feeCollected > 0, MarketplaceZeroFeeValue());
 
-        emit FeeWithdrawed(to, _feeCollected);
+        emit FeeWithdrawn(to, _feeCollected);
 
-        (bool success, ) = to.call{value: _feeCollected}("");
-        _feeCollected = 0;	// use no reentrant 
+        uint256 value = _feeCollected;
+        _feeCollected = 0;
 
+        (bool success, ) = to.call{value: value}("");
         require(success, MarketplaceTransactionFailed());
     }
 
     function setWhitelist(address token, bool allowed) public onlyOwner {
         whitelist[token] = allowed;
+
+        emit TokenWhitelistStateChanged(token, allowed);
     }
 }

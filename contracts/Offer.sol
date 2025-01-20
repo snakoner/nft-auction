@@ -73,7 +73,7 @@ contract Offer is
         address buyer
     ) 
     {
-        Lot memory lot = _lots[id];
+        Lot storage lot = _lots[id];
         return (
             address(lot.token),
             getLotState(id),
@@ -95,12 +95,13 @@ contract Offer is
         uint256 tokenId,
         address creator,
         uint64 duration
-    ) private {
-        if (duration < minDuration) {
-            revert MarketplaceInvalidInputData();
-        }
+    ) internal {
+        require(
+            duration >= minDuration,
+            MarketplaceInvalidInputData()
+        );
 
-        token.transferFrom(creator, address(this), tokenId);
+        token.safeTransferFrom(creator, address(this), tokenId);
 
         _lots[totalLots] = Lot({
                 token: token,
@@ -124,14 +125,16 @@ contract Offer is
         uint256 tokenId,
         uint64 duration
     ) external isInWhitelist(_token) {
-        if (!_supportsERC721Interface(_token)) {
-            revert MarketplaceNoIERC721Support();
-        }
+        require(
+            _supportsERC721Interface(_token), 
+            MarketplaceNoIERC721Support()
+        );
 
         address creator = _msgSender();
-        if (!_supportsERC721ReceiverInterface(creator)) {
-            revert MarketplaceNoIERC721ReceiverSupport();
-        }
+        require(
+            _supportsERC721ReceiverInterface(creator), 
+            MarketplaceNoIERC721ReceiverSupport()
+        );
 
         IERC721 token = IERC721(_token);
         _addOffer(token, tokenId, creator, duration);
@@ -143,18 +146,21 @@ contract Offer is
         uint256[] calldata tokenIds,
         uint64[] calldata durations
     ) external isInWhitelist(_token) {
-        if (tokenIds.length != durations.length) {
-            revert MarketplaceArrayLengthMissmatch();
-        }
+        require(
+            tokenIds.length == durations.length,
+            MarketplaceArrayLengthMissmatch()
+        );
 
-        if (!_supportsERC721Interface(_token)) {
-            revert MarketplaceNoIERC721Support();
-        }
+        require(
+            _supportsERC721Interface(_token), 
+            MarketplaceNoIERC721Support()
+        );
 
         address creator = _msgSender();
-        if (!_supportsERC721ReceiverInterface(creator)) {
-            revert MarketplaceNoIERC721ReceiverSupport();
-        }
+        require(
+            _supportsERC721ReceiverInterface(creator), 
+            MarketplaceNoIERC721ReceiverSupport()
+        );
 
         IERC721 token = IERC721(_token);
         for (uint256 i = 0; i < tokenIds.length; i++) {
@@ -167,17 +173,17 @@ contract Offer is
         uint256 id
     ) external payable nonReentrant lotExist(id) onlyCreator(id) {
         LotState state = getLotState(id);
-        if (!(state == LotState.Active || state == LotState.Timeout)) {
-            revert MarketplaceUnexpectedState(
+        require(
+            state == LotState.Active || state == LotState.Timeout,
+            MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Active)) |
-                _encodeState(uint8(LotState.Timeout))
-            );
-        }
+                _encodeState(uint8(LotState.Timeout)))
+        );
 
         Lot storage lot = _lots[id];
         lot.sold = true;
 
-        lot.token.transferFrom(address(this), lot.buyer, lot.tokenId);
+        lot.token.safeTransferFrom(address(this), lot.buyer, lot.tokenId);
         
         uint256 price = _calculatePriceWithFeeAndUpdate(address(lot.token), lot.tokenId, lot.price);
 
@@ -194,13 +200,12 @@ contract Offer is
         uint256 id
     ) external nonReentrant lotExist(id) {
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Active || state == LotState.Timeout)) {
-            revert MarketplaceUnexpectedState(
+        require(state != LotState.Closed && state != LotState.Sold,
+            MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) | 
                 _encodeState(uint8(LotState.Active)) |
-                _encodeState(uint8(LotState.Timeout))
-            );
-        }
+                _encodeState(uint8(LotState.Timeout)))
+        );
 
         address closer = _msgSender();
         Lot storage lot = _lots[id];
@@ -211,7 +216,7 @@ contract Offer is
         }
 
         lot.closed = true;
-        lot.token.transferFrom(address(this), lot.creator, lot.tokenId);
+        lot.token.safeTransferFrom(address(this), lot.creator, lot.tokenId);
 
         if (lot.price > 0) {
             // send ETH back to buyer, no market and royalty fee hold
@@ -228,17 +233,18 @@ contract Offer is
         uint256 id
     ) external payable nonReentrant lotExist(id)  {
         uint256 value = msg.value;
-        if (value <= _lots[id].price) {
-            revert InsufficientValue();
-        }
+        require(
+            value > _lots[id].price,
+            InsufficientValue()
+        );
 
         LotState state = getLotState(id);
-        if (!(state == LotState.Created || state == LotState.Active)) {
-            revert MarketplaceUnexpectedState(
+        require(
+            state == LotState.Created || state == LotState.Active,
+            MarketplaceUnexpectedState(
                 _encodeState(uint8(LotState.Created)) |
-                _encodeState(uint8(LotState.Active))
-            );
-        }
+                _encodeState(uint8(LotState.Active)))
+        );
 
         Lot storage lot = _lots[id];
         if (lot.price != 0) {
